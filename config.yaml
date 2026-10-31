@@ -1,0 +1,62 @@
+# Configuración del agente (sin secretos). Ver PLAN.md, sección 3.
+# Cualquier clave escalar se puede sobrescribir con TWM_<RUTA>, p.ej. TWM_WHISPER_MODEL.
+
+timezone: America/Mexico_City
+
+paths:
+  data: ./data # estado y salida por post (en la Pi: en la SD)
+  work: '' # intermedios (WAV, renders); vacío = directorio temporal del sistema (tmpfs en la Pi)
+
+blog:
+  # Clon del blog del que se leen site.yaml y el schema. En la Pi será un clon dedicado.
+  path: ~/code/cabrera-systems-blog
+
+whisper:
+  bin: whisper-cli
+  model: ./models/ggml-large-v3-turbo-q5_0.bin
+  threads: 4
+
+audio:
+  bitrate: 48k # MP3 mono: 2–5 min ≈ 0.7–1.8 MB
+  maxSeconds: 900
+
+images:
+  maxWidth: 1600
+  quality: 80
+
+claude:
+  bin: claude
+  model: sonnet
+  retries: 2
+
+cover:
+  accent: '#f97316'
+  background: ['#02050f', '#0b1426', '#111e38']
+
+# Términos confirmados por Jesus. Se pasan a Whisper (prompt inicial) y a Claude
+# para corregir errores de reconocimiento. `heard`: cómo lo transcribe Whisper.
+glossary:
+  - term: CSI
+    meaning: Channel State Information (sensado de presencia con WiFi)
+    heard: [sci, sc in, S.C.I, SCI]
+  - term: ESP-CSI
+    meaning: librería de CSI para ESP32 en GitHub
+    heard: [sc in, SCIN]
+  - term: ESP32-WROOM-32
+    meaning: variante del ESP32
+    heard: [w room 32]
+  - term: Zig
+    meaning: lenguaje de programación (alternativa a C)
+    heard: [en si, si, CIG]
+  - term: Auro
+    meaning: nombre del proyecto de sensado WiFi (alternativa Aurora)
+    heard: [auro, aurora]
+  - term: Prometheus
+    meaning: según contexto, la película (Alien) o la base de datos de métricas
+    heard: [prometeos, prometeus, Mateus, el VIP acercándose]
+  - term: LoRa
+    meaning: radio de largo alcance y bajo consumo
+    heard: [lora]
+  - term: LiDAR
+    meaning: escaneo por láser
+    heard: [lidar]

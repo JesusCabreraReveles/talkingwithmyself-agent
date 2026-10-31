@@ -1,0 +1,29 @@
+{
+	"name": "talkingwithmyself-agent",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"bin": {
+		"twm": "./src/cli.ts"
+	},
+	"scripts": {
+		"twm": "node src/cli.ts",
+		"check": "tsc --noEmit",
+		"test": "node --test 'src/**/*.test.ts'",
+		"sync-schema": "node scripts/sync-schema.ts"
+	},
+	"engines": {
+		"node": ">=22.18"
+	},
+	"dependencies": {
+		"@mozilla/readability": "^0.6.0",
+		"linkedom": "^0.18.14",
+		"sharp": "^0.35.5",
+		"yaml": "^2.9.1",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@types/node": "^22.20.5",
+		"typescript": "^6.0.3"
+	}
+}
