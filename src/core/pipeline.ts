@@ -123,7 +123,7 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 	const save = () => saveJob(config, job);
 
 	try {
-		// 1. Audio + transcription
+		// 1. Audio + transcription, then cleanup (clean is '' until Claude has cleaned it)
 		if (job.input.audio && !job.transcript) {
 			hooks.log('audio → mp3 + detectando idioma…');
 			const src = join(dir, job.input.audio);
@@ -143,9 +143,14 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 				hooks.log(`transcribiendo ${reported}% · faltan ~${Math.max(1, Math.round(left / 60000))} min`);
 			});
 			job.audio = { lang, duration };
-			hooks.log(`idioma ${lang}, ${duration}s · limpiando transcripción…`);
-			const cleaned = await cleanTranscript(config, text);
-			job.transcript = { raw: text, clean: cleaned.clean };
+			// Saved before cleaning: on the Pi Whisper takes ~3.5× the audio, never redo it.
+			job.transcript = { raw: text, clean: '' };
+			await save();
+		}
+		if (job.transcript && !job.transcript.clean) {
+			hooks.log(`idioma ${job.audio!.lang}, ${job.audio!.duration}s · limpiando transcripción…`);
+			const cleaned = await cleanTranscript(config, job.transcript.raw);
+			job.transcript.clean = cleaned.clean;
 			job.terms = cleaned.uncertain_terms;
 			job.unclear = cleaned.unclear;
 			job.status = 'transcribed';
