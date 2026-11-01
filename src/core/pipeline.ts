@@ -125,7 +125,7 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 	try {
 		// 1. Audio + transcription
 		if (job.input.audio && !job.transcript) {
-			hooks.log('audio → mp3 + transcripción…');
+			hooks.log('audio → mp3 + detectando idioma…');
 			const src = join(dir, job.input.audio);
 			const mp3 = join(work, 'audio.mp3');
 			await toMp3(src, mp3, config.audio.bitrate);
@@ -134,7 +134,14 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			await copyFile(mp3, join(dir, 'audio.mp3'));
 			const wav = join(work, 'audio.wav');
 			await toWav(src, wav);
-			const { lang, text } = await transcribe(config, wav, join(work, 'whisper'));
+			const started = Date.now();
+			let reported = 0;
+			const { lang, text } = await transcribe(config, wav, join(work, 'whisper'), (percent) => {
+				if (percent < reported + 10 || percent >= 100) return;
+				reported = percent - (percent % 10);
+				const left = ((Date.now() - started) / percent) * (100 - percent);
+				hooks.log(`transcribiendo ${reported}% · faltan ~${Math.max(1, Math.round(left / 60000))} min`);
+			});
 			job.audio = { lang, duration };
 			hooks.log(`idioma ${lang}, ${duration}s · limpiando transcripción…`);
 			const cleaned = await cleanTranscript(config, text);
