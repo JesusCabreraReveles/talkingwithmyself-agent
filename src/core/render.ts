@@ -39,6 +39,21 @@ export function renderMarkdown(fm: PostFrontmatter, body: string): string {
 	return `---\n${stringify(fm, { lineWidth: 0 }).trimEnd()}\n---\n\n${body.trim()}\n`;
 }
 
+/**
+ * The blog's preprocessor only bundles `![alt](./file.webp)` with an existing file;
+ * anything else 404s or fails the Vercel build, so catch it here.
+ */
+export function imageErrors(lang: Lang, body: string, files: string[]): string[] {
+	const errors: string[] = [];
+	if (/<img\b/i.test(body)) errors.push(`${lang}.md: <img> no permitido, usa ![alt](./img-N.webp)`);
+	for (const [, alt, src] of body.matchAll(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g)) {
+		if (!alt.trim()) errors.push(`${lang}.md: imagen sin alt: ${src}`);
+		if (!src.startsWith('./') || !src.endsWith('.webp')) errors.push(`${lang}.md: ruta no válida: ${src}`);
+		else if (!files.includes(src.slice(2))) errors.push(`${lang}.md: no existe: ${src}`);
+	}
+	return errors;
+}
+
 export async function writePost(
 	dir: string,
 	draft: { original: Original; adapted: Localized },

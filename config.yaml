@@ -52,8 +52,8 @@ glossary:
     meaning: nombre del proyecto de sensado WiFi (alternativa Aurora)
     heard: [auro, aurora]
   - term: Prometheus
-    meaning: según contexto, la película (Alien) o la base de datos de métricas
-    heard: [prometeos, prometeus, Mateus, el VIP acercándose]
+    meaning: base de datos de métricas y monitoreo (no la película)
+    heard: [prometeos, prometeus, Mateus]
   - term: LoRa
     meaning: radio de largo alcance y bajo consumo
     heard: [lora]

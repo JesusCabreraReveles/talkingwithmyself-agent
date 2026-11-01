@@ -10,7 +10,7 @@ import { adapt, cleanTranscript, draftOriginal, review } from './draft.ts';
 import { isoDate, postId, stamp } from './ids.ts';
 import { generateCover, toBodyImage, toCover } from './images.ts';
 import { jobDir, saveJob, type InputImage, type Job, type UncertainTerm } from './job.ts';
-import { writePost } from './render.ts';
+import { imageErrors, writePost } from './render.ts';
 import { SiteConfig } from './schema/site.ts';
 import { validatePostFolder } from './schema/validate.ts';
 import { readSource } from './sources.ts';
@@ -210,6 +210,8 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 		const siteWithNewTags = { ...site, tags: [...site.tags, ...original.newTags] };
 		const files = await readdir(postDir, { recursive: true });
 		const { errors } = validatePostFolder({ id: job.postId!, files, markdown }, siteWithNewTags);
+		const other = job.audio.lang === 'es' ? 'en' : 'es';
+		errors.push(...imageErrors(job.audio.lang, original.body, files), ...imageErrors(other, job.draft.adapted.body, files));
 		if (errors.length > 0) throw new Error(`post no válido:\n${errors.join('\n')}`);
 
 		job.status = 'ready';

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isoDate, kebab, postId, stamp } from './ids.ts';
 import { imageRole } from './pipeline.ts';
+import { imageErrors } from './render.ts';
 
 test('stamp and date use the configured timezone', () => {
 	const d = new Date('2026-11-04T05:30:00Z'); // 23:30 on Nov 3 in Mexico City
@@ -20,4 +21,14 @@ test('image role from caption', () => {
 	assert.deepEqual(imageRole('cover'), { role: 'cover', caption: '' });
 	assert.deepEqual(imageRole('#2 diagrama del pipeline'), { role: 2, caption: 'diagrama del pipeline' });
 	assert.deepEqual(imageRole('foto del ESP32'), { role: null, caption: 'foto del ESP32' });
+});
+
+test('imageErrors: only ./ webp references to existing files', () => {
+	const files = ['cover.webp', 'img-1.webp', 'es.md'];
+	assert.deepEqual(imageErrors('es', 'texto ![un diagrama](./img-1.webp) fin', files), []);
+	assert.equal(imageErrors('es', '![x](img-1.webp)', files).length, 1);
+	assert.equal(imageErrors('es', '![x](./img-2.webp)', files).length, 1);
+	assert.equal(imageErrors('es', '![x](./img-1.png)', files).length, 1);
+	assert.equal(imageErrors('es', '![](./img-1.webp)', files).length, 1);
+	assert.equal(imageErrors('es', '<img src="./img-1.webp">', files).length, 1);
 });
