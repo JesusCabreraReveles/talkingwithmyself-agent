@@ -1,19 +1,25 @@
 #!/usr/bin/env node
 // twm draft <input-dir> [--yes] [--audio]   new post from a folder (audio + images + urls.txt + notas.txt);
 //                                    --audio also publishes the voice note and its transcript
-// twm resume <job> [--yes] [--answer=<term>…]   continue a paused / pending job;
-//                                    --answer gives the pending terms' spellings in order
+// twm resume <job> [--yes] [--answer=<term>…] [--clarify=<text>…]   continue a paused / pending job;
+//                                    --answer gives the pending terms' spellings in order,
+//                                    --clarify what each [?] passage meant ('omitir' drops it)
 // twm status <job>                show a job's state
+// twm covers "<title>"            render every generated-cover variant to data/covers/
 import { createInterface } from 'node:readline/promises';
-import { relative } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { loadConfig, type Config } from './config.ts';
-import { jobDir, loadJob, type Job, type UncertainTerm } from './core/job.ts';
+import { jobDir, loadJob, OMIT, type Job, type UncertainTerm, type UnclearPassage } from './core/job.ts';
+import { COVER_VARIANTS, generateCover } from './core/images.ts';
 import { createJob, runJob, type Hooks } from './core/pipeline.ts';
 
 const [command, arg, ...flags] = process.argv.slice(2);
 const yes = flags.includes('--yes');
 const publishAudio = flags.includes('--audio');
-const answersFlag = flags.filter((f) => f.startsWith('--answer=')).map((f) => f.slice('--answer='.length));
+const values = (name: string) => flags.filter((f) => f.startsWith(`--${name}=`)).map((f) => f.slice(name.length + 3));
+const answersFlag = values('answer');
+const clarifyFlag = values('clarify');
 
 async function confirmTerms(terms: UncertainTerm[]) {
 	if (answersFlag.length === terms.length) return { answers: answersFlag, fromJesus: true };
@@ -31,9 +37,28 @@ async function confirmTerms(terms: UncertainTerm[]) {
 	return { answers, fromJesus: true };
 }
 
+async function clarify(passages: UnclearPassage[]) {
+	if (clarifyFlag.length === passages.length) return clarifyFlag;
+	if (yes) return passages.map(() => ''); // stay doubtful: never stated as fact
+	if (!process.stdin.isTTY) return null;
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	console.log(`\nPasajes que no se entendieron (Enter = dejarlo como dudoso, "${OMIT}" = quitarlo):`);
+	const answers: string[] = [];
+	for (const u of passages) {
+		console.log(`\n  «${u.passage}»`);
+		answers.push((await rl.question(`  ${u.question} `)).trim());
+	}
+	rl.close();
+	return answers;
+}
+
 function report(config: Config, job: Job): void {
 	console.log(`\njob ${job.key} · ${job.status}${job.error ? ` · ${job.error}` : ''}`);
-	if (job.status === 'terms_pending') console.log(`términos pendientes → twm resume ${job.key}`);
+	if (job.status === 'questions_pending') {
+		for (const t of (job.terms ?? []).filter((t) => t.confirmed === undefined)) console.log(`término: "${t.heard}" → ¿${t.guess}?`);
+		for (const u of (job.unclear ?? []).filter((u) => u.answer === undefined)) console.log(`pasaje: «${u.passage}» → ${u.question}`);
+		console.log(`preguntas pendientes → twm resume ${job.key}`);
+	}
 	if (job.status === 'paused') console.log(`Claude no disponible → twm resume ${job.key}`);
 	if (!job.draft) return;
 	const { original, adapted } = job.draft;
@@ -46,7 +71,7 @@ function report(config: Config, job: Job): void {
 	}
 }
 
-const hooks: Hooks = { log: (m) => console.log(`· ${m}`), confirmTerms };
+const hooks: Hooks = { log: (m) => console.log(`· ${m}`), confirmTerms, clarify };
 
 async function main(): Promise<void> {
 	const config = await loadConfig();
@@ -57,6 +82,15 @@ async function main(): Promise<void> {
 			job = await createJob(config, arg, { publishAudio });
 			console.log(`job ${job.key}`);
 			break;
+		case 'covers': {
+			if (!arg) throw new Error('usage: twm covers "<title>"');
+			const out = join(config.paths.data, 'covers');
+			await mkdir(out, { recursive: true });
+			const total = COVER_VARIANTS * config.cover.background.length;
+			for (let v = 0; v < total; v++) await generateCover(arg, join(out, `variant-${v}.webp`), config, v);
+			console.log(`${total} variantes → ${relative(process.cwd(), out)}`);
+			return;
+		}
 		case 'resume':
 		case 'status':
 			if (!arg) throw new Error(`usage: twm ${command} <job>`);
@@ -64,7 +98,7 @@ async function main(): Promise<void> {
 			if (command === 'status') return report(config, job);
 			break;
 		default:
-			console.log('usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job>');
+			console.log('usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm covers "<title>"');
 			process.exit(command ? 1 : 0);
 	}
 	try {

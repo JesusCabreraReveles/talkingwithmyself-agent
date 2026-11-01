@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isoDate, kebab, postId, stamp } from './ids.ts';
-import { imageRole } from './pipeline.ts';
+import { applyAnswers, imageRole } from './pipeline.ts';
 import { imageErrors } from './render.ts';
 
 test('stamp and date use the configured timezone', () => {
@@ -31,4 +31,14 @@ test('imageErrors: only ./ webp references to existing files', () => {
 	assert.equal(imageErrors('es', '![x](./img-1.png)', files).length, 1);
 	assert.equal(imageErrors('es', '![](./img-1.webp)', files).length, 1);
 	assert.equal(imageErrors('es', '<img src="./img-1.webp">', files).length, 1);
+});
+
+test('applyAnswers: unmark answered passages, drop omitted, keep unanswered', () => {
+	const text = 'Uno. Hablando por Mateus (el bip) [?] Dos. Algo raro [?] Tres. Sin respuesta [?]';
+	const out = applyAnswers(text, [
+		{ passage: 'Hablando por Mateus (el bip)', question: '?', answer: 'me refería a Alien' },
+		{ passage: 'Algo raro', question: '?', answer: 'omitir' },
+		{ passage: 'Sin respuesta', question: '?', answer: '' }
+	]);
+	assert.equal(out, 'Uno. Hablando por Mateus (el bip) Dos. Tres. Sin respuesta [?]');
 });

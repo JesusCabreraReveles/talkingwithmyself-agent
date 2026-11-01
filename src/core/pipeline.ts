@@ -6,10 +6,18 @@ import { parse } from 'yaml';
 import { ClaudeUnavailable } from '../claude.ts';
 import { addToGlossary, type Config } from '../config.ts';
 import { durationSeconds, toMp3, toWav } from './audio.ts';
-import { adapt, cleanTranscript, draftOriginal, review } from './draft.ts';
+import { adapt, cleanTranscript, describeImage, draftOriginal, review } from './draft.ts';
 import { isoDate, postId, stamp } from './ids.ts';
 import { generateCover, toBodyImage, toCover } from './images.ts';
-import { jobDir, saveJob, type InputImage, type Job, type UncertainTerm } from './job.ts';
+import {
+	jobDir,
+	OMIT,
+	saveJob,
+	type InputImage,
+	type Job,
+	type UncertainTerm,
+	type UnclearPassage
+} from './job.ts';
 import { imageErrors, writePost } from './render.ts';
 import { SiteConfig } from './schema/site.ts';
 import { validatePostFolder } from './schema/validate.ts';
@@ -26,6 +34,8 @@ export type Hooks = {
 	 * is false when guesses were accepted blindly (--yes): those never reach the glossary.
 	 */
 	confirmTerms: (terms: UncertainTerm[]) => Promise<{ answers: string[]; fromJesus: boolean } | null>;
+	/** What Jesus meant per `[?]` passage ('' = leave it doubtful, OMIT = drop it), or null. */
+	clarify: (passages: UnclearPassage[]) => Promise<string[] | null>;
 };
 
 /**
@@ -94,6 +104,18 @@ function applyTerms(text: string, terms: UncertainTerm[]): string {
 	return out;
 }
 
+/** Answered passages lose their `[?]` (the answer goes to Claude as a clarification); OMIT removes them. */
+export function applyAnswers(text: string, passages: UnclearPassage[]): string {
+	let out = text;
+	for (const u of passages) {
+		if (!u.answer) continue;
+		const literal = u.passage.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const marked = new RegExp(`${literal}\\s*\\[\\?\\]`, 'g');
+		out = out.replace(marked, () => (u.answer === OMIT ? '' : u.passage));
+	}
+	return out.replace(/ {2,}/g, ' ');
+}
+
 export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Job> {
 	const dir = jobDir(config, job.key);
 	const work = join(config.paths.work, `twm-${job.key}`);
@@ -118,21 +140,23 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			const cleaned = await cleanTranscript(config, text);
 			job.transcript = { raw: text, clean: cleaned.clean };
 			job.terms = cleaned.uncertain_terms;
+			job.unclear = cleaned.unclear;
 			job.status = 'transcribed';
 			await save();
 		}
 		if (!job.audio) throw new Error('job has no audio');
 
-		// 2. Uncertain terms → Jesus confirms; answers grow the glossary
+		// 2. Questions for Jesus: uncertain terms (answers grow the glossary) and unclear passages
+		const waitForJesus = async () => {
+			job.status = 'questions_pending';
+			job.error = undefined;
+			await save();
+			return job;
+		};
 		const pending = (job.terms ?? []).filter((t) => t.confirmed === undefined);
 		if (pending.length > 0) {
 			const res = await hooks.confirmTerms(pending);
-			if (!res) {
-				job.status = 'terms_pending';
-				job.error = undefined;
-				await save();
-				return job;
-			}
+			if (!res) return waitForJesus();
 			pending.forEach((t, i) => (t.confirmed = res.answers[i]));
 			job.transcript!.clean = applyTerms(job.transcript!.clean, pending);
 			if (res.fromJesus) await addToGlossary(
@@ -140,6 +164,14 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 					.filter((t) => t.confirmed!.split(/\s+/).length <= 3)
 					.map((t) => ({ term: t.confirmed!, meaning: 'confirmado por Jesus', heard: [t.heard] }))
 			);
+			await save();
+		}
+		const unclear = (job.unclear ?? []).filter((u) => u.answer === undefined);
+		if (unclear.length > 0) {
+			const answers = await hooks.clarify(unclear);
+			if (!answers) return waitForJesus();
+			unclear.forEach((u, i) => (u.answer = answers[i].trim()));
+			job.transcript!.clean = applyAnswers(job.transcript!.clean, unclear);
 			await save();
 		}
 
@@ -151,7 +183,18 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			await save();
 		}
 
-		// 4. Draft in the spoken language, then adapt
+		// 4. Images → WebP, alt described from the image itself
+		for (const [n, img] of job.input.images.entries()) {
+			if (img.alt) continue;
+			hooks.log(`describiendo imagen ${n + 1}/${job.input.images.length}…`);
+			await mkdir(join(dir, 'images'), { recursive: true });
+			img.webp = `images/${n + 1}.webp`;
+			await (img.role === 'cover' ? toCover : toBodyImage)(join(dir, img.file), join(dir, img.webp), config);
+			img.alt = await describeImage(config, join(dir, img.webp), img.caption, job.audio.lang);
+			await save();
+		}
+
+		// 5. Draft in the spoken language, then adapt
 		const site = await loadSite(config);
 		if (!job.draft) {
 			hooks.log('redactando…');
@@ -164,7 +207,7 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			await save();
 		}
 
-		// 5. Self-review against the transcript and sources
+		// 6. Self-review against the transcript and sources
 		if (!job.review) {
 			hooks.log('autorrevisión…');
 			const { original, adapted } = job.draft;
@@ -178,18 +221,18 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			await save();
 		}
 
-		// 6. Post folder + validation with the blog's own rules
+		// 7. Post folder + validation with the blog's own rules
 		hooks.log('escribiendo y validando…');
 		const postDir = join(dir, 'post', job.postId!);
 		await rm(postDir, { recursive: true, force: true });
 		await mkdir(postDir, { recursive: true });
 		if (job.publishAudio) await copyFile(join(dir, 'audio.mp3'), join(postDir, 'audio.mp3'));
 		const cover = job.input.images.findLast((i) => i.role === 'cover');
-		if (cover) await toCover(join(dir, cover.file), join(postDir, 'cover.webp'), config);
+		if (cover) await copyFile(join(dir, cover.webp!), join(postDir, 'cover.webp'));
 		else await generateCover(job.draft.original.title, join(postDir, 'cover.webp'), config, Number(job.stamp.slice(-2)));
 		const bodyImages = job.input.images.filter((i) => i.role !== 'cover');
 		for (const [n, img] of bodyImages.entries()) {
-			await toBodyImage(join(dir, img.file), join(postDir, `img-${n + 1}.webp`), config);
+			await copyFile(join(dir, img.webp!), join(postDir, `img-${n + 1}.webp`));
 		}
 
 		const { original } = job.draft;
