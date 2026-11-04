@@ -4,8 +4,7 @@
 ### Plan de implementación (NO implementado)
 
 > Creado: 2026-10-29 · Actualizado: 2026-10-31 con las respuestas de Jesus · Estado: **todas las decisiones tomadas; listo para empezar etapa 0.**
-> Fuente de contexto: `~/code/cabrera-systems-blog/PLAN.md` (secciones 1, "Dos proyectos y su contrato", 6, 7, 8, 9, 11).
-> Rama principal del blog: **`master`** (decisión de Jesus, 2026-11-03); repo `JesusCabreraReveles/cabrera-systems-blog`, remoto aún no creado.
+> Rama principal del blog: **`master`** (decisión de Jesus, 2026-11-03); repo `JesusCabreraReveles/cabrera-systems-blog` (público; CI con test + check + build en cada PR; Vercel y branch protection pendientes).
 > Restricciones: costo $0 · nunca push a `master` · token GitHub solo sobre `cabrera-systems-blog` · no inventar hechos · EN + ES.
 
 ---
@@ -206,7 +205,7 @@ Ver sección 7.
 <a name="5"></a>
 ## 5. Contrato con el blog (schema)
 
-> Acordado con la sesión del blog y confirmado por Jesus el 2026-10-31 (registrado en `~/code/cabrera-systems-blog/PLAN.md` sección 6). Campos en borrador hasta que el blog congele `schemaVersion: 1` y lo notifique.
+> Acordado con la sesión del blog y confirmado por Jesus el 2026-10-31. Campos en borrador hasta que el blog congele `schemaVersion: 1` y lo notifique.
 
 - El schema es **propiedad de `cabrera-systems-blog`**: el schema zod del blog es la fuente de verdad.
 - **Cómo lo consume el agente:** el build del blog genera **`schema/post.schema.json`** y **`schema/site.schema.json`** (rutas fijas en la raíz del repo). Los tags viven en **`src/content/site.yaml`** (aceptado por el blog; nombres exactos de claves finales al congelar v1). Antes de cada commit el agente lo lee de `master` y valida. Si `schemaVersion` de `master` ≠ la soportada → no publica y avisa.
