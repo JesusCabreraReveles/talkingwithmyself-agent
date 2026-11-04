@@ -5,7 +5,8 @@
 
 > Creado: 2026-10-29 · Actualizado: 2026-10-31 con las respuestas de Jesus · Estado: **todas las decisiones tomadas; listo para empezar etapa 0.**
 > Fuente de contexto: `~/code/cabrera-systems-blog/PLAN.md` (secciones 1, "Dos proyectos y su contrato", 6, 7, 8, 9, 11).
-> Restricciones: costo $0 · nunca push a `main` · token GitHub solo sobre `cabrera-systems-blog` · no inventar hechos · EN + ES.
+> Rama principal del blog: **`master`** (decisión de Jesus, 2026-11-03); repo `JesusCabreraReveles/cabrera-systems-blog`, remoto aún no creado.
+> Restricciones: costo $0 · nunca push a `master` · token GitHub solo sobre `cabrera-systems-blog` · no inventar hechos · EN + ES.
 
 ---
 
@@ -41,7 +42,7 @@ Telegram: /nuevo → nota de voz 2–5 min + imágenes + URLs → /listo
    ├─ Valida contra el schema del blog
    ├─ Commit (autor Jesus, coautor Claude) a rama post/<id> → Vercel preview
    └─ Telegram: "Listo 👉 <preview>  [✅ Publicar] [✏️ Cambios]"
-         ✅ → fija date = hoy → merge a main → publicado (~1 min) → share outputs
+         ✅ → fija date = hoy → merge a master → publicado (~1 min) → share outputs
          ✏️ → instrucciones (texto o voz) → nuevo commit → nuevo preview
 ```
 
@@ -208,9 +209,9 @@ Ver sección 7.
 > Acordado con la sesión del blog y confirmado por Jesus el 2026-10-31 (registrado en `~/code/cabrera-systems-blog/PLAN.md` sección 6). Campos en borrador hasta que el blog congele `schemaVersion: 1` y lo notifique.
 
 - El schema es **propiedad de `cabrera-systems-blog`**: el schema zod del blog es la fuente de verdad.
-- **Cómo lo consume el agente:** el build del blog genera **`schema/post.schema.json`** y **`schema/site.schema.json`** (rutas fijas en la raíz del repo). Los tags viven en **`src/content/site.yaml`** (aceptado por el blog; nombres exactos de claves finales al congelar v1). Antes de cada commit el agente lo lee de `main` y valida. Si `schemaVersion` de `main` ≠ la soportada → no publica y avisa.
-- Validación doble: local en el agente + en build del blog. **`main` tiene branch protection que exige el check de Vercel** (el repo es público → protección gratis), así que un merge con build roto es imposible.
-- **Tags: lista controlada** en el repo del blog, cada tag con etiqueta EN y ES; zod rechaza tags desconocidos. El agente lee la lista de `main` y Claude elige solo de ella. Si hace falta uno nuevo, el agente lo **agrega a la lista en el mismo PR** y lo señala en el mensaje de Telegram ("tag nuevo: `platform-engineering` / *ingeniería de plataformas*") para que Jesus lo apruebe junto con el post. *(Ruta del archivo: pendiente, la manda el blog cuando exista.)*
+- **Cómo lo consume el agente:** el build del blog genera **`schema/post.schema.json`** y **`schema/site.schema.json`** (rutas fijas en la raíz del repo). Los tags viven en **`src/content/site.yaml`** (aceptado por el blog; nombres exactos de claves finales al congelar v1). Antes de cada commit el agente lo lee de `master` y valida. Si `schemaVersion` de `master` ≠ la soportada → no publica y avisa.
+- Validación doble: local en el agente + en build del blog. **`master` tiene branch protection que exige el check de Vercel** (el repo es público → protección gratis), así que un merge con build roto es imposible.
+- **Tags: lista controlada** en el repo del blog, cada tag con etiqueta EN y ES; zod rechaza tags desconocidos. El agente lee la lista de `master` y Claude elige solo de ella. Si hace falta uno nuevo, el agente lo **agrega a la lista en el mismo PR** y lo señala en el mensaje de Telegram ("tag nuevo: `platform-engineering` / *ingeniería de plataformas*") para que Jesus lo apruebe junto con el post. *(Ruta del archivo: pendiente, la manda el blog cuando exista.)*
 - **Archivos que escribe** (por post):
   ```
   src/content/posts/<AAAAMMDDHHmm-slug>/
@@ -234,7 +235,7 @@ Ver sección 7.
   - `canonical` **eliminado**: se deriva como `baseUrl/lang/slug` (`baseUrl` de `site.yaml`). El agente usa la misma fórmula en los share outputs.
   - `date` obligatorio: provisional (hoy) en commits de rama; el commit de ✅ la fija con la fecha del merge.
 - **Reglas de carpeta** (`validate.ts`; el JSON Schema no las expresa): id `^\d{12}-kebab` con slug ≤ 30 · existen `en.md` y `es.md` y `lang` coincide con el nombre · exactamente un `original: true` · `date, cover, tags, draft, audio, audioLang, duration` idénticos en ambos · `cover` y `audio` existen · `audio/audioLang/duration` van juntos · audio ⇒ `transcript.md` · `audioLang` = idioma del original · slugs únicos por idioma.
-- **Cómo valida el agente:** copia `post.ts`, `site.ts` y `validate.ts` a `src/core/schema/` con un script `npm run sync-schema` que los toma de `main` del blog y falla si `SCHEMA_VERSION` cambió sin actualizar el agente. Así valida con el mismo código zod que el build (no solo JSON Schema), incluidas las reglas de carpeta.
+- **Cómo valida el agente:** copia `post.ts`, `site.ts` y `validate.ts` a `src/core/schema/` con un script `npm run sync-schema` que los toma de `master` del blog y falla si `SCHEMA_VERSION` cambió sin actualizar el agente. Así valida con el mismo código zod que el build (no solo JSON Schema), incluidas las reglas de carpeta.
 - **Acordado también:** id de carpeta `AAAAMMDDHHmm-slug` (el blog no deriva la fecha del id) · `img-N.webp` en la carpeta · `share/` solo texto e ignorada por el sitio público · sin MP4 en git · transcripción limpia · `America/Mexico_City`.
 - **Pendiente del lado del blog:** ruta del archivo de tags y aviso de schema v1 congelado.
 
@@ -283,7 +284,7 @@ Ver sección 7.
 <a name="7"></a>
 ## 7. Publicación: rama, preview, merge
 
-1. `git checkout -b post/<id>` desde `main` actualizado (clon dedicado en la Pi).
+1. `git checkout -b post/<id>` desde `master` actualizado (clon dedicado en la Pi).
 2. Commit con **autor Jesus** y su **email personal** (`GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` en `.env`, aplicados al clon) y trailer:
    ```
    post: 202611031222-dashboards-lie (es → en)
@@ -293,19 +294,19 @@ Ver sección 7.
    (el nombre/modelo del trailer es configurable).
    `date` en commits de rama = fecha provisional (ahora), para que el preview pase la validación.
    Notas del email personal: el repo del blog será **público**, así que el email queda visible en el historial; debe estar verificado en la cuenta de GitHub para que los commits se atribuyan; y si en GitHub está activo *"Block command line pushes that expose my email"*, el push fallaría (GH007) → desactivarlo o confirmar en etapa 0.
-3. Push con el token fine-grained + **PR** `post/<id> → main`.
+3. Push con el token fine-grained + **PR** `post/<id> → master`.
 4. **URL del preview:** de los deployments/commit statuses que crea la integración Vercel↔GitHub, con el mismo token (lectura de *Deployments* / *Commit statuses*). Sin token de Vercel. Polling ~10 s, timeout ~5 min. Si el build falla → resumen a Telegram; Claude intenta corregir si es error de schema.
 5. ✏️ **Cambios** → nuevo commit en la misma rama → nuevo preview.
 6. ✅ **Publicar:**
    1. Commit final que sobrescribe la `date` provisional con la fecha actual (`America/Mexico_City`) en `en.md` y `es.md`, y regenera los share outputs con la URL canónica definitiva.
    2. Espera el check de Vercel en verde (~1 min).
-   3. **Squash merge** del PR vía API (el commit en `main` lleva autor Jesus + coautor Claude) y borra la rama.
+   3. **Squash merge** del PR vía API (el commit en `master` lleva autor Jesus + coautor Claude) y borra la rama.
    4. Espera el deploy de producción y responde con `cabrera.systems/blog/<lang>/<slug>` + share outputs.
 7. **Despublicar:** `/unpublish <id>` → PR con `draft: true`, merge tras confirmación.
 
 **Notas:**
 - Previews de Vercel Hobby con *Deployment Protection*: Jesus los ve logueado en Vercel desde el móvil.
-- **Branch protection en `main`** exigiendo el check de Vercel: confirmada por el blog.
+- **Branch protection en `master`** exigiendo el check de Vercel: confirmada por el blog.
 - El mensaje de preview en Telegram lista los **tags nuevos** que el PR agrega a la lista controlada.
 - El token no necesita admin ni workflows.
 

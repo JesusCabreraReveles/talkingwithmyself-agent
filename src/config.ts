@@ -21,7 +21,7 @@ const Config = z
 	.object({
 		timezone: z.string().min(1),
 		paths: z.object({ data: z.string().min(1), work: z.string().default('') }).strict(),
-		blog: z.object({ path: z.string().min(1) }).strict(),
+		blog: z.object({ path: z.string().min(1), repo: z.string().min(1), branch: z.string().min(1) }).strict(),
 		whisper: z
 			.object({ bin: z.string(), model: z.string(), threads: z.coerce.number().int().positive() })
 			.strict(),

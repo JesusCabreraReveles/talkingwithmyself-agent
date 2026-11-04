@@ -10,6 +10,8 @@ paths:
 blog:
   # Clon del blog del que se leen site.yaml y el schema. En la Pi será un clon dedicado.
   path: ~/code/cabrera-systems-blog
+  repo: JesusCabreraReveles/cabrera-systems-blog # remoto aún no creado
+  branch: master # base de los PR y destino del merge
 
 whisper:
   bin: whisper-cli
