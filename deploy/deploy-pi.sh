@@ -22,6 +22,14 @@ ssh -t "${PI_HOST}" "
   rm -rf /tmp/twm-agent &&
   cd /var/lib/twm/agent &&
   sudo -u twm npm ci --omit=dev &&
+  sudo cp /var/lib/twm/agent/deploy/twm.service /etc/systemd/system/twm.service &&
+  sudo systemctl daemon-reload &&
+  if [ ! -d /var/lib/twm/blog ]; then
+    echo '==> Clonando repositorio del blog en /var/lib/twm/blog…'
+    sudo -u twm git clone https://github.com/JesusCabreraReveles/cabrera-systems-blog.git /var/lib/twm/blog
+  fi &&
+  sudo mkdir -p /var/lib/twm/data &&
+  sudo chown -R twm:twm /var/lib/twm/data /var/lib/twm/blog &&
   if systemctl is-active --quiet twm.service; then
     echo '==> Reiniciando servicio twm.service…'
     sudo systemctl restart twm.service

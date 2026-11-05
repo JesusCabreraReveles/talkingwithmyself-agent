@@ -15,12 +15,14 @@ RestartSec=5
 EnvironmentFile=/etc/twm/agent.env
 
 # Runtime paths in the Pi
+Environment=HOME=/var/lib/twm
 Environment=TWM_PATHS_DATA=/var/lib/twm/data
+Environment=TWM_WHISPER_BIN=/usr/local/bin/whisper-cli
 Environment=TWM_WHISPER_MODEL=/var/lib/twm/models/ggml-large-v3-turbo-q5_0.bin
 Environment=TWM_WHISPER_THREADS=3
-Environment=TWM_CLAUDE_BIN=/var/lib/twm/.local/bin/claude
+Environment=TWM_CLAUDE_BIN=/usr/bin/claude
 Environment=TWM_BLOG_PATH=/var/lib/twm/blog
-Environment=PATH=/var/lib/twm/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Resource limits to coexist peacefully with mcPato and UniFi OS
 Nice=10
