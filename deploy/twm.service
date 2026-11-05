@@ -1,0 +1,36 @@
+[Unit]
+Description=Talking With Myself Telegram Bot and Publishing Agent
+After=network.target
+
+[Service]
+Type=simple
+User=twm
+Group=twm
+WorkingDirectory=/var/lib/twm/agent
+ExecStart=/usr/bin/node src/bot/index.ts
+Restart=always
+RestartSec=5
+
+# Secrets and environment
+EnvironmentFile=/etc/twm/agent.env
+
+# Runtime paths in the Pi
+Environment=TWM_PATHS_DATA=/var/lib/twm/data
+Environment=TWM_WHISPER_MODEL=/var/lib/twm/models/ggml-large-v3-turbo-q5_0.bin
+Environment=TWM_WHISPER_THREADS=3
+Environment=TWM_CLAUDE_BIN=/var/lib/twm/.local/bin/claude
+Environment=TWM_BLOG_PATH=/var/lib/twm/blog
+Environment=PATH=/var/lib/twm/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# Resource limits to coexist peacefully with mcPato and UniFi OS
+Nice=10
+CPUQuota=300%
+MemoryMax=3G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twm
+
+[Install]
+WantedBy=multi-user.target

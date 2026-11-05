@@ -51,10 +51,9 @@ export function imageRole(caption: string): { role: InputImage['role']; caption:
 	return { role: null, caption: text };
 }
 
-/** CLI input folder: exactly one audio file, images, optional urls.txt and notas.txt / notes.txt. */
-export async function createJob(
+/** Initializes an empty collecting job. */
+export async function initJob(
 	config: Config,
-	inputDir: string,
 	opts: { publishAudio?: boolean; now?: Date } = {}
 ): Promise<Job> {
 	const now = opts.now ?? new Date();
@@ -69,6 +68,18 @@ export async function createJob(
 	};
 	const inDir = join(jobDir(config, job.key), 'input');
 	await mkdir(inDir, { recursive: true });
+	await saveJob(config, job);
+	return job;
+}
+
+/** CLI input folder: exactly one audio file, images, optional urls.txt and notas.txt / notes.txt. */
+export async function createJob(
+	config: Config,
+	inputDir: string,
+	opts: { publishAudio?: boolean; now?: Date } = {}
+): Promise<Job> {
+	const job = await initJob(config, opts);
+	const inDir = join(jobDir(config, job.key), 'input');
 
 	for (const name of (await readdir(inputDir)).sort()) {
 		const ext = extname(name).toLowerCase();
