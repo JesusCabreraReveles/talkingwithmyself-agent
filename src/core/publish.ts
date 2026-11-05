@@ -300,26 +300,35 @@ export async function confirmPublishPost(
 	}
 
 	await exec('git', ['-C', blogPath, 'add', `src/content/posts/${postId}`]);
-	const commitMsg = `publish: ${postId} (date: ${today})\n\nCo-Authored-By: ${config.git.coAuthor}`;
-	await exec('git', ['-C', blogPath, 'commit', '-m', commitMsg], {
-		env: {
-			GIT_AUTHOR_NAME: author.name,
-			GIT_AUTHOR_EMAIL: author.email,
-			GIT_COMMITTER_NAME: author.name,
-			GIT_COMMITTER_EMAIL: author.email
-		}
-	});
+	const hasChanges = await exec('git', ['-C', blogPath, 'diff', '--cached', '--quiet']).then(
+		() => false,
+		() => true
+	);
 
-	hooks.log(`haciendo push del commit final a ${branchName}…`);
-	await exec('git', [
-		'-C',
-		blogPath,
-		'-c',
-		`http.https://github.com/.extraheader=${authHeader}`,
-		'push',
-		'origin',
-		branchName
-	]);
+	if (hasChanges) {
+		const commitMsg = `publish: ${postId} (date: ${today})\n\nCo-Authored-By: ${config.git.coAuthor}`;
+		await exec('git', ['-C', blogPath, 'commit', '-m', commitMsg], {
+			env: {
+				GIT_AUTHOR_NAME: author.name,
+				GIT_AUTHOR_EMAIL: author.email,
+				GIT_COMMITTER_NAME: author.name,
+				GIT_COMMITTER_EMAIL: author.email
+			}
+		});
+
+		hooks.log(`haciendo push del commit final a ${branchName}…`);
+		await exec('git', [
+			'-C',
+			blogPath,
+			'-c',
+			`http.https://github.com/.extraheader=${authHeader}`,
+			'push',
+			'origin',
+			branchName
+		]);
+	} else {
+		hooks.log(`la fecha de publicación ya coincidía con ${today}, sin cambios adicionales…`);
+	}
 
 	const finalSha = (await exec('git', ['-C', blogPath, 'rev-parse', 'HEAD'])).trim();
 
