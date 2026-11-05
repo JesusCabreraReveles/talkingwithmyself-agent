@@ -1,0 +1,17 @@
+[Unit]
+Description=Talking With Myself Periodic Cleanup (6 Months)
+After=network.target
+
+[Service]
+Type=oneshot
+User=twm
+Group=twm
+WorkingDirectory=/var/lib/twm/agent
+EnvironmentFile=/etc/twm/agent.env
+Environment=TWM_PATHS_DATA=/var/lib/twm/data
+Environment=TWM_BLOG_PATH=/var/lib/twm/blog
+Environment=HOME=/var/lib/twm
+ExecStart=/usr/bin/node src/cli.ts cleanup --days=180
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=twm-cleanup

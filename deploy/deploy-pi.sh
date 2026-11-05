@@ -22,7 +22,10 @@ ssh -t "${PI_HOST}" "
   rm -rf /tmp/twm-agent &&
   sudo -u twm bash -c 'cd /var/lib/twm/agent && npm ci --omit=dev' &&
   sudo cp /var/lib/twm/agent/deploy/twm.service /etc/systemd/system/twm.service &&
+  sudo cp /var/lib/twm/agent/deploy/twm-cleanup.service /etc/systemd/system/twm-cleanup.service &&
+  sudo cp /var/lib/twm/agent/deploy/twm-cleanup.timer /etc/systemd/system/twm-cleanup.timer &&
   sudo systemctl daemon-reload &&
+  sudo systemctl enable --now twm-cleanup.timer &&
   if ! sudo test -d /var/lib/twm/blog/.git; then
     echo '==> Clonando repositorio del blog en /var/lib/twm/blog…'
     sudo -u twm git clone https://github.com/JesusCabreraReveles/cabrera-systems-blog.git /var/lib/twm/blog

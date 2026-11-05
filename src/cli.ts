@@ -8,11 +8,13 @@
 // twm publish <job-or-post> [--confirm]  create branch, PR, wait for Vercel preview; --confirm merges to master
 // twm unpublish <postId> [--confirm]     open PR with draft: true; --confirm merges to master
 // twm share <job-or-post>            generate or display LinkedIn, X, and Dev.to share copies
+// twm cleanup [--days=180] [--dry-run]  clean old published jobs (> 6 months) and temp files
 // twm covers "<title>"            render every generated-cover variant to data/covers/
 import { createInterface } from 'node:readline/promises';
 import { mkdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { loadConfig, type Config } from './config.ts';
+import { runCleanup } from './core/cleanup.ts';
 import { COVER_VARIANTS, generateCover } from './core/images.ts';
 import { findJob, jobDir, loadJob, OMIT, type Job, type UncertainTerm, type UnclearPassage } from './core/job.ts';
 import { createJob, runJob, type Hooks } from './core/pipeline.ts';
@@ -190,6 +192,20 @@ async function main(): Promise<void> {
 
 			return;
 		}
+		case 'cleanup': {
+			const daysFlag = Number(values('days')[0] || 180);
+			const dryRun = flags.includes('--dry-run');
+			console.log(`· ejecutando limpieza (antigüedad > ${daysFlag} días${dryRun ? ', simulación' : ''})…`);
+			const res = await runCleanup(config, {
+				maxDays: daysFlag,
+				dryRun,
+				log: (msg) => console.log(`  · ${msg}`)
+			});
+			console.log(
+				`✓ Limpieza completada: ${res.jobsRemoved.length} jobs eliminados, ${res.tempFilesRemoved.length} temporales eliminados.`
+			);
+			return;
+		}
 		case 'resume':
 		case 'status':
 			if (!arg) throw new Error(`usage: twm ${command} <job>`);
@@ -198,7 +214,7 @@ async function main(): Promise<void> {
 			break;
 		default:
 			console.log(
-				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm share <job> | twm covers "<title>"'
+				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm share <job> | twm cleanup [--days=180] | twm covers "<title>"'
 			);
 			process.exit(command ? 1 : 0);
 	}
