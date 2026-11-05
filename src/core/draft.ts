@@ -99,6 +99,26 @@ export async function draftOriginal(config: Config, job: Job, site: SiteConfig):
 	});
 }
 
+export async function applyFeedback(
+	config: Config,
+	job: Job,
+	feedback: string,
+	site: SiteConfig
+): Promise<Original> {
+	const tags = site.tags.map((t) => `- ${t.id}: ${t.label.es} / ${t.label.en}`).join('\n');
+	return ask(config, {
+		system: await system('draft'),
+		input: [
+			materialBlock(job),
+			imagesBlock(job.input.images),
+			tag('tags_del_blog', '', tags),
+			tag('borrador_anterior', '', JSON.stringify(job.draft?.original, null, 1)),
+			tag('instrucciones_de_cambios_de_jesus', '', feedback)
+		].join('\n\n'),
+		schema: Original
+	});
+}
+
 export async function adapt(config: Config, post: Localized, from: Lang): Promise<Localized> {
 	const to = from === 'es' ? 'en' : 'es';
 	return ask(config, {

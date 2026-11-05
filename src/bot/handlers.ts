@@ -1,8 +1,11 @@
 // Handlers for Telegram bot: commands, media ingestion, callbacks, and pipeline execution.
-import { copyFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Bot, type Context } from 'grammy';
 import type { Config } from '../config.ts';
+import { toWav } from '../core/audio.ts';
+import { adapt, applyFeedback, cleanTranscript, review } from '../core/draft.ts';
+import { isoDate } from '../core/ids.ts';
 import { generateCover } from '../core/images.ts';
 import {
 	findJob,
@@ -14,8 +17,11 @@ import {
 	type UncertainTerm,
 	type UnclearPassage
 } from '../core/job.ts';
-import { imageRole, initJob, runJob } from '../core/pipeline.ts';
+import { imageRole, initJob, loadSite, runJob } from '../core/pipeline.ts';
 import { confirmPublishPost, publishPost, unpublishPost } from '../core/publish.ts';
+import { writePost } from '../core/render.ts';
+import type { Lang } from '../core/schema/post.ts';
+import { transcribe } from '../core/transcribe.ts';
 import { downloadTelegramFile } from './media.ts';
 import { clearSession, loadSession, saveSession, type BotSession } from './session.ts';
 import {
@@ -301,6 +307,65 @@ export function setupBot(bot: Bot, config: Config): void {
 		}
 	}
 
+	// Helper to apply user feedback changes to an existing post draft
+	async function applyChangesToJob(ctx: Context, job: Job, session: BotSession, feedback: string) {
+		const statusMsg = await ctx.reply('✏️ <b>Aplicando tus cambios con Claude…</b>', { parse_mode: 'HTML' });
+		const log = (msg: string) => {
+			console.log(`[Bot Edit Log] ${msg}`);
+			ctx.api
+				.editMessageText(statusMsg.chat.id, statusMsg.message_id, `⚙️ ${msg}`, { parse_mode: 'HTML' })
+				.catch(() => {});
+		};
+
+		try {
+			log('redactando nueva versión con tus indicaciones…');
+			const site = await loadSite(config);
+			const updatedOriginal = await applyFeedback(config, job, feedback, site);
+			log('adaptando al otro idioma…');
+			const updatedAdapted = await adapt(config, updatedOriginal, job.audio!.lang);
+			job.draft = { original: updatedOriginal, adapted: updatedAdapted };
+
+			log('autorrevisión anti-invención…');
+			const lang = job.audio!.lang;
+			const bodies: Record<Lang, string> =
+				lang === 'es'
+					? { es: updatedOriginal.body, en: updatedAdapted.body }
+					: { es: updatedAdapted.body, en: updatedOriginal.body };
+			const res = await review(config, job, bodies);
+			updatedOriginal.body = res[lang];
+			updatedAdapted.body = res[lang === 'es' ? 'en' : 'es'];
+			job.review = { removed: res.removed };
+
+			log('escribiendo archivos y validando…');
+			const postDir = join(jobDir(config, job.key), 'post', job.postId!);
+			const tags = [...new Set(updatedOriginal.tags)];
+			await writePost(
+				postDir,
+				job.draft,
+				job.audio!.lang,
+				{
+					date: isoDate(new Date(), config.timezone),
+					tags,
+					sourceUrls: (job.sources ?? []).filter((s) => !s.error).map((s) => s.url),
+					audio: job.publishAudio ? job.audio : undefined
+				},
+				job.publishAudio ? job.transcript!.clean : undefined
+			);
+			await saveJob(config, job);
+
+			log('subiendo nuevo commit y actualizando preview en Vercel…');
+			await publishPost(config, job, { log });
+
+			await ctx.reply(formatPreviewMessage(job), {
+				parse_mode: 'HTML',
+				reply_markup: previewKeyboard(job)
+			});
+		} catch (e) {
+			console.error('[Apply Changes Error]', e);
+			await ctx.reply(`✗ Error al aplicar cambios:\n${(e as Error).message}`);
+		}
+	}
+
 	// /listo
 	bot.command('listo', async (ctx) => {
 		const session = await loadSession(config);
@@ -343,6 +408,23 @@ export function setupBot(bot: Bot, config: Config): void {
 
 		const fileInfo = await ctx.api.getFile(fileObj.file_id);
 		if (!fileInfo.file_path) throw new Error('No se pudo obtener ruta del archivo en Telegram');
+
+		if (session.pendingAction?.type === 'custom_change') {
+			delete session.pendingAction;
+			await saveSession(config, session);
+			const tmpDir = join(config.paths.work, `voice-edit-${Date.now()}`);
+			await mkdir(tmpDir, { recursive: true });
+			const rawAudio = join(tmpDir, 'audio.oga');
+			await downloadTelegramFile(bot.token, fileInfo.file_path, rawAudio);
+			const wav = join(tmpDir, 'audio.wav');
+			await toWav(rawAudio, wav);
+			const { text: rawText } = await transcribe(config, wav, join(tmpDir, 'whisper'));
+			const cleaned = await cleanTranscript(config, rawText);
+			await rm(tmpDir, { recursive: true, force: true });
+			await ctx.reply(`🎙 <b>Instrucciones de voz recibidas</b>:\n«${cleaned.clean}»`, { parse_mode: 'HTML' });
+			await applyChangesToJob(ctx, job, session, cleaned.clean);
+			return;
+		}
 
 		const ext = fileInfo.file_path.endsWith('.mp3') ? '.mp3' : '.oga';
 		const localDest = join(jobDir(config, job.key), 'input', `audio${ext}`);
@@ -435,6 +517,10 @@ export function setupBot(bot: Bot, config: Config): void {
 				await saveJob(config, job);
 				await ctx.reply(`✅ Aclaración guardada.`, { parse_mode: 'HTML' });
 				await runPipelineForJob(ctx, job, session);
+				return;
+			}
+			if (act.type === 'custom_change') {
+				await applyChangesToJob(ctx, job, session, text);
 				return;
 			}
 		}
@@ -557,6 +643,17 @@ export function setupBot(bot: Bot, config: Config): void {
 		}
 
 		// Post actions
+		if (data === 'post:edit') {
+			session.pendingAction = { type: 'custom_change' };
+			await saveSession(config, session);
+			await ctx.reply(
+				'✏️ <b>¿Qué cambios deseas hacer?</b>\n\n' +
+					'Escribe en el chat tus instrucciones de cambio (ej. <i>"haz el título más corto"</i>, <i>"quita la mención a Alien"</i>) o mándame una nota de voz con las indicaciones.',
+				{ parse_mode: 'HTML' }
+			);
+			return;
+		}
+
 		if (data === 'post:toggle_audio') {
 			job.publishAudio = !job.publishAudio;
 			await saveJob(config, job);

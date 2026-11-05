@@ -104,7 +104,7 @@ export async function createJob(
 	return job;
 }
 
-async function loadSite(config: Config): Promise<SiteConfig> {
+export async function loadSite(config: Config): Promise<SiteConfig> {
 	const raw = parse(await readFile(join(config.blog.path, 'src/content/site.yaml'), 'utf8'));
 	return SiteConfig.parse(raw);
 }
