@@ -8,6 +8,14 @@ import { z } from 'zod';
 export const ROOT = new URL('..', import.meta.url).pathname;
 const CONFIG_FILE = process.env.TWM_CONFIG ?? join(ROOT, 'config.yaml');
 
+try {
+	process.loadEnvFile('/etc/twm/agent.env');
+} catch {
+	try {
+		process.loadEnvFile();
+	} catch {}
+}
+
 const GlossaryEntry = z
 	.object({
 		term: z.string().min(1),
@@ -22,6 +30,13 @@ const Config = z
 		timezone: z.string().min(1),
 		paths: z.object({ data: z.string().min(1), work: z.string().default('') }).strict(),
 		blog: z.object({ path: z.string().min(1), repo: z.string().min(1), branch: z.string().min(1) }).strict(),
+		git: z
+			.object({
+				coAuthor: z.string().default('Claude <noreply@anthropic.com>'),
+				authorName: z.string().optional(),
+				authorEmail: z.string().optional()
+			})
+			.default({ coAuthor: 'Claude <noreply@anthropic.com>' }),
 		whisper: z
 			.object({ bin: z.string(), model: z.string(), threads: z.coerce.number().int().positive() })
 			.strict(),

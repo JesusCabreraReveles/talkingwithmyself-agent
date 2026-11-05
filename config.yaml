@@ -13,6 +13,9 @@ blog:
   repo: JesusCabreraReveles/cabrera-systems-blog
   branch: master # base de los PR y destino del merge
 
+git:
+  coAuthor: 'Claude <noreply@anthropic.com>'
+
 whisper:
   bin: whisper-cli
   model: ./models/ggml-large-v3-turbo-q5_0.bin

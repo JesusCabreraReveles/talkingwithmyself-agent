@@ -3,13 +3,26 @@ import { promisify } from 'node:util';
 
 const pexec = promisify(execFile);
 
-export async function exec(bin: string, args: string[]): Promise<string> {
-	return (await execBoth(bin, args)).stdout;
+export type ExecOptions = {
+	cwd?: string;
+	env?: Record<string, string | undefined>;
+};
+
+export async function exec(bin: string, args: string[], opts?: ExecOptions): Promise<string> {
+	return (await execBoth(bin, args, opts)).stdout;
 }
 
-export async function execBoth(bin: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+export async function execBoth(
+	bin: string,
+	args: string[],
+	opts?: ExecOptions
+): Promise<{ stdout: string; stderr: string }> {
 	try {
-		return await pexec(bin, args, { maxBuffer: 64 * 1024 * 1024 });
+		return await pexec(bin, args, {
+			maxBuffer: 64 * 1024 * 1024,
+			cwd: opts?.cwd,
+			env: opts?.env ? { ...process.env, ...opts.env } : process.env
+		});
 	} catch (e) {
 		const err = e as Error & { stderr?: string };
 		throw new Error(`${bin} failed: ${(err.stderr || err.message).trim().slice(-800)}`);

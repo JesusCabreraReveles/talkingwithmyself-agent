@@ -1,5 +1,5 @@
 // Per-post state in data/<job>/job.json, so a job can resume after a crash or a pause.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Config } from '../config.ts';
 import type { Localized, Original } from './draft.ts';
@@ -12,6 +12,8 @@ export type Status =
 	| 'drafted'
 	| 'reviewed'
 	| 'ready'
+	| 'previewed'
+	| 'published'
 	| 'paused'
 	| 'failed';
 
@@ -35,6 +37,16 @@ export type InputImage = {
 	alt?: string;
 };
 
+export type PublishInfo = {
+	branch: string;
+	prNumber?: number;
+	prUrl?: string;
+	commitSha?: string;
+	previewUrl?: string;
+	publishedAt?: string;
+	publishedDate?: string;
+};
+
 export type Job = {
 	/** Folder name under data/: the AAAAMMDDHHmm stamp until the slug is known. */
 	key: string;
@@ -53,6 +65,7 @@ export type Job = {
 	postId?: string;
 	draft?: { original: Original; adapted: Localized };
 	review?: { removed: string[] };
+	publish?: PublishInfo;
 };
 
 export function jobDir(config: Config, key: string): string {
@@ -67,4 +80,28 @@ export async function saveJob(config: Config, job: Job): Promise<void> {
 
 export async function loadJob(config: Config, key: string): Promise<Job> {
 	return JSON.parse(await readFile(join(jobDir(config, key), 'job.json'), 'utf8'));
+}
+
+/**
+ * Loads a job by key (e.g. 202611010153) or searches by postId (e.g. 202611010153-slug).
+ */
+export async function findJob(config: Config, identifier: string): Promise<Job> {
+	try {
+		return await loadJob(config, identifier);
+	} catch {}
+
+	try {
+		const entries = await readdir(config.paths.data, { withFileTypes: true });
+		for (const e of entries) {
+			if (!e.isDirectory() || e.name === 'covers') continue;
+			try {
+				const job = await loadJob(config, e.name);
+				if (job.postId === identifier || job.stamp === identifier || job.key === identifier) {
+					return job;
+				}
+			} catch {}
+		}
+	} catch {}
+
+	throw new Error(`job no encontrado: "${identifier}"`);
 }
