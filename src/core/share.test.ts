@@ -21,7 +21,6 @@ test('generateDevToMarkdown: builds frontmatter, cleans tags, and rewrites relat
 		title: 'Un equipo Scrum de agentes de IA',
 		description: 'Cómo orquestar agentes bajo ceremonias de Scrum.',
 		slug: 'scrum-agentes-ia',
-		tags: ['ia', 'scrum'],
 		hashtags: ['#AI', '#Scrum!', '#SoftwareEngineering', '#Agile', '#ExtraTag'],
 		coverAlt: 'Portada',
 		body: 'Este es el contenido.\n\n![Arquitectura](./image-1.webp)\n\nMás texto.'

@@ -101,10 +101,14 @@ export function escapeHtml(str: string): string {
 		.replace(/>/g, '&gt;');
 }
 
-export function shareXKeyboard(tweetEs: string, tweetEn: string): InlineKeyboard {
-	return new InlineKeyboard()
+export function shareXKeyboard(tweetEs: string, tweetEn: string, hasAudio = false): InlineKeyboard {
+	const kb = new InlineKeyboard()
 		.url('🐦 Tuitear en X (ES)', `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetEs)}`)
 		.url('🐦 Tuitear en X (EN)', `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetEn)}`);
+	if (hasAudio) {
+		kb.row().text('🎬 Descargar Audiograma MP4 (140s)', 'share:audiogram');
+	}
+	return kb;
 }
 
 export function shareLinkedInKeyboard(urlEs: string, urlEn: string): InlineKeyboard {

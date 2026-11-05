@@ -1,5 +1,6 @@
 // Stage 5: Generation of share outputs for LinkedIn, X (Twitter), Dev.to / Hashnode,
 // and optional audiogram MP4 for Telegram.
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -182,27 +183,32 @@ export async function readShareFiles(
 /**
  * Renders a square 1080x1080 audiogram MP4 using ffmpeg.
  * Waveform in accent color #f97316 overlayed on the square cover image, audio max 140s.
- * Only generated when audio is published.
  */
 export async function generateAudiogram(
 	config: Config,
 	job: Job,
 	outPath: string,
-	hooks?: { log: (msg: string) => void }
+	hooks?: { log: (msg: string) => void },
+	options: { maxDurationSec?: number } = {}
 ): Promise<string | null> {
-	if (!job.publishAudio || !job.audio) return null;
-
 	const dir = jobDir(config, job.key);
-	const audioPath = join(dir, 'audio.mp3');
-	const coverPath = join(dir, 'post', job.postId!, 'cover.webp');
+	const audioPath = existsSync(join(dir, 'audio.mp3'))
+		? join(dir, 'audio.mp3')
+		: job.input.audio && existsSync(join(dir, job.input.audio))
+			? join(dir, job.input.audio)
+			: null;
 
-	hooks?.log('renderizando audiograma MP4 con ffmpeg (≤ 140s)…');
+	if (!audioPath) return null;
 
-	// ffmpeg filter complex:
-	// 1. Scales cover to 1080x1080 square crop
-	// 2. Generates waveform from audio in #f97316 (160px height)
-	// 3. Overlays waveform centered horizontally near bottom (H-h-100)
-	// 4. Encodes as H.264 (AAC audio) max 140s
+	let coverPath = job.postId ? join(dir, 'post', job.postId, 'cover.webp') : null;
+	if (!coverPath || !existsSync(coverPath)) {
+		coverPath = join(config.blog.path, 'src/content/posts', job.postId ?? '', 'cover.webp');
+	}
+	if (!existsSync(coverPath)) return null;
+
+	const maxSec = options.maxDurationSec ?? 140;
+	hooks?.log(`renderizando audiograma MP4 con ffmpeg (≤ ${maxSec}s)…`);
+
 	const args = [
 		'-y',
 		'-loop',
@@ -228,7 +234,7 @@ export async function generateAudiogram(
 		'-b:a',
 		'128k',
 		'-t',
-		'140',
+		String(maxSec),
 		outPath
 	];
 

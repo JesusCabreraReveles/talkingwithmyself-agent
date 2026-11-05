@@ -47,6 +47,52 @@ import {
 	termsKeyboard
 } from './ui.ts';
 
+async function findActiveOrLatestJob(config: Config, session: BotSession): Promise<Job | null> {
+	if (session.activeJobKey) {
+		const j = await loadJob(config, session.activeJobKey).catch(() => null);
+		if (j?.draft) return j;
+	}
+	const all = await listJobs(config);
+	for (const candidate of all.reverse()) {
+		if (candidate.draft && candidate.postId) {
+			return candidate;
+		}
+	}
+	return null;
+}
+
+async function sendAudiogramForJob(ctx: Context, config: Config, job: Job): Promise<void> {
+	if (!job.input.audio && !job.audio) {
+		await ctx.reply('⚠️ Este post no cuenta con nota de voz.');
+		return;
+	}
+
+	const statusMsg = await ctx.reply('🎬 <b>Renderizando audiograma MP4 (≤ 140s) con ffmpeg…</b>', {
+		parse_mode: 'HTML'
+	});
+
+	try {
+		const outPath = join(config.paths.work, `audiogram-${job.postId}-140s.mp4`);
+		const videoFile = existsSync(outPath) ? outPath : await generateAudiogram(config, job, outPath);
+
+		if (!videoFile || !existsSync(videoFile)) {
+			throw new Error('No se pudo generar el archivo de video');
+		}
+
+		await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id).catch(() => {});
+		await ctx.replyWithVideo(new InputFile(videoFile), {
+			caption:
+				'🎬 <b>Audiograma MP4 (≤ 140s)</b> listo para X / Twitter.\n\n' +
+				'<i>Toca en el video para guardarlo en tu galería y adjuntarlo a tu tweet en X.</i>',
+			parse_mode: 'HTML'
+		});
+	} catch (e) {
+		await ctx.api
+			.editMessageText(statusMsg.chat.id, statusMsg.message_id, `✗ Error renderizando audiograma: ${(e as Error).message}`)
+			.catch(() => {});
+	}
+}
+
 async function sendShareOutputs(
 	ctx: Context,
 	config: Config,
@@ -55,6 +101,8 @@ async function sendShareOutputs(
 	urls: { en: string; es: string },
 	audiogramPath?: string | null
 ): Promise<void> {
+	const hasAudio = Boolean(job.audio || job.input.audio);
+
 	// 1. LinkedIn message
 	await ctx.reply(
 		`💼 <b>LinkedIn (Español)</b>:\n\n` +
@@ -75,7 +123,7 @@ async function sendShareOutputs(
 			`<pre>${escapeHtml(shareTexts.x.en)}</pre>`,
 		{
 			parse_mode: 'HTML',
-			reply_markup: shareXKeyboard(shareTexts.x.es, shareTexts.x.en)
+			reply_markup: shareXKeyboard(shareTexts.x.es, shareTexts.x.en, hasAudio)
 		}
 	);
 
@@ -88,12 +136,23 @@ async function sendShareOutputs(
 		{ parse_mode: 'HTML' }
 	);
 
-	// 4. Audiogram video if available
-	if (audiogramPath && existsSync(audiogramPath)) {
-		await ctx.replyWithVideo(new InputFile(audiogramPath), {
-			caption: '🎙 <b>Audiograma 1080x1080 (≤ 140s)</b> listo para compartir en redes.',
-			parse_mode: 'HTML'
-		});
+	// 4. Audiogram video if audio exists
+	if (hasAudio) {
+		const outPath = join(config.paths.work, `audiogram-${job.postId}-140s.mp4`);
+		let videoFile = audiogramPath && existsSync(audiogramPath) ? audiogramPath : null;
+		if (!videoFile && existsSync(outPath)) {
+			videoFile = outPath;
+		} else if (!videoFile) {
+			videoFile = await generateAudiogram(config, job, outPath).catch(() => null);
+		}
+		if (videoFile && existsSync(videoFile)) {
+			await ctx.replyWithVideo(new InputFile(videoFile), {
+				caption:
+					'🎬 <b>Audiograma MP4 (≤ 140s)</b> listo para X / Twitter.\n\n' +
+					'<i>Toca en el video para guardarlo en tu galería y adjuntarlo a tu tweet en X.</i>',
+				parse_mode: 'HTML'
+			});
+		}
 	}
 }
 
@@ -133,6 +192,7 @@ export function setupBot(bot: Bot, config: Config): void {
 				`• /cancelar — Descarta el post en curso\n` +
 				`• /reintentar — Reintenta si Claude se pausó\n` +
 				`• /share — Genera y muestra textos de difusión para LinkedIn y X\n` +
+				`• /audiograma — Descarga el video MP4 (≤ 140s) para X / Twitter\n` +
 				`• /unpublish <code>&lt;id&gt;</code> — Despublica un post\n\n` +
 				`Escribe /nuevo para empezar.`,
 			{ parse_mode: 'HTML' }
@@ -296,19 +356,7 @@ export function setupBot(bot: Bot, config: Config): void {
 	// /share
 	bot.command(['share', 'difusion'], async (ctx) => {
 		const session = await loadSession(config);
-		let job: Job | null = null;
-		if (session.activeJobKey) {
-			job = await loadJob(config, session.activeJobKey).catch(() => null);
-		}
-		if (!job || !job.draft) {
-			const all = await listJobs(config);
-			for (const candidate of all.reverse()) {
-				if (candidate.draft && candidate.postId) {
-					job = candidate;
-					break;
-				}
-			}
-		}
+		const job = await findActiveOrLatestJob(config, session);
 		if (!job || !job.postId || !job.draft) {
 			await ctx.reply('No se encontró ningún post para generar textos de difusión. Usa /nuevo para crear uno.');
 			return;
@@ -343,24 +391,22 @@ export function setupBot(bot: Bot, config: Config): void {
 				shareData = { shareTexts, devTo };
 			}
 
-			let audiogramPath: string | null = null;
-			if (job.publishAudio && job.audio) {
-				const expected = join(config.paths.work, `audiogram-${job.postId}.mp4`);
-				if (existsSync(expected)) {
-					audiogramPath = expected;
-				} else {
-					await ctx.api
-						.editMessageText(statusMsg.chat.id, statusMsg.message_id, '· Renderizando audiograma MP4 con ffmpeg…')
-						.catch(() => {});
-					audiogramPath = await generateAudiogram(config, job, expected).catch(() => null);
-				}
-			}
-
 			await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id).catch(() => {});
-			await sendShareOutputs(ctx, config, job, shareData.shareTexts, urls, audiogramPath);
+			await sendShareOutputs(ctx, config, job, shareData.shareTexts, urls);
 		} catch (e) {
 			await ctx.reply(`✗ Error al preparar difusión: ${(e as Error).message}`);
 		}
+	});
+
+	// /audiograma /video
+	bot.command(['audiograma', 'video', 'mp4'], async (ctx) => {
+		const session = await loadSession(config);
+		const job = await findActiveOrLatestJob(config, session);
+		if (!job || !job.postId) {
+			await ctx.reply('No se encontró ningún post reciente con nota de voz.');
+			return;
+		}
+		await sendAudiogramForJob(ctx, config, job);
 	});
 
 	// Helper to execute pipeline from Telegram
@@ -773,6 +819,11 @@ export function setupBot(bot: Bot, config: Config): void {
 			job.input.notes = '';
 			await saveJob(config, job);
 			await ctx.reply('🗑 Notas eliminadas.');
+			return;
+		}
+
+		if (data === 'share:audiogram') {
+			await sendAudiogramForJob(ctx, config, job);
 			return;
 		}
 
