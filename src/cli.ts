@@ -7,6 +7,7 @@
 // twm status <job-or-post>           show a job's state
 // twm publish <job-or-post> [--confirm]  create branch, PR, wait for Vercel preview; --confirm merges to master
 // twm unpublish <postId> [--confirm]     open PR with draft: true; --confirm merges to master
+// twm share <job-or-post>            generate or display LinkedIn, X, and Dev.to share copies
 // twm covers "<title>"            render every generated-cover variant to data/covers/
 import { createInterface } from 'node:readline/promises';
 import { mkdir } from 'node:fs/promises';
@@ -15,7 +16,14 @@ import { loadConfig, type Config } from './config.ts';
 import { COVER_VARIANTS, generateCover } from './core/images.ts';
 import { findJob, jobDir, loadJob, OMIT, type Job, type UncertainTerm, type UnclearPassage } from './core/job.ts';
 import { createJob, runJob, type Hooks } from './core/pipeline.ts';
-import { confirmPublishPost, publishPost, unpublishPost } from './core/publish.ts';
+import { confirmPublishPost, getJobCanonicalUrls, loadSiteConfig, publishPost, unpublishPost } from './core/publish.ts';
+import {
+	generateAudiogram,
+	generateDevToMarkdown,
+	generateShareTexts,
+	readShareFiles,
+	writeShareFiles
+} from './core/share.ts';
 
 const [command, arg, ...flags] = process.argv.slice(2);
 const yes = flags.includes('--yes');
@@ -129,6 +137,59 @@ async function main(): Promise<void> {
 			await unpublishPost(config, arg, publishHooks, { confirm: confirmFlag });
 			return;
 		}
+		case 'share': {
+			if (!arg) throw new Error('usage: twm share <job-or-postId>');
+			job = await findJob(config, arg);
+			if (!job.postId || !job.draft) throw new Error('El job no tiene borrador completado.');
+
+			const site = await loadSiteConfig(config.blog.path);
+			const urls = getJobCanonicalUrls(site, job);
+			const postDir = join(jobDir(config, job.key), 'post', job.postId);
+			const blogPostDir = join(config.blog.path, 'src/content/posts', job.postId);
+
+			let shareData = (await readShareFiles(blogPostDir)) ?? (await readShareFiles(postDir));
+
+			if (!shareData) {
+				console.log('· generando textos de difusión para LinkedIn y X…');
+				const shareTexts = await generateShareTexts(config, job, urls);
+				const originalLang = job.audio?.lang ?? 'es';
+				const esPost = originalLang === 'es' ? job.draft.original : job.draft.adapted;
+				const enPost = originalLang === 'en' ? job.draft.original : job.draft.adapted;
+				const devTo = {
+					es: generateDevToMarkdown(esPost, 'es', urls.es, config.blog.repo, job.postId),
+					en: generateDevToMarkdown(enPost, 'en', urls.en, config.blog.repo, job.postId)
+				};
+				await writeShareFiles(postDir, shareTexts, devTo);
+				await writeShareFiles(blogPostDir, shareTexts, devTo).catch(() => {});
+				shareData = { shareTexts, devTo };
+			}
+
+			console.log(`\n========================================`);
+			console.log(`📢 DIFUSIÓN / SHARE: ${job.postId}`);
+			console.log(`========================================\n`);
+
+			console.log(`💼 LINKEDIN (ES):\n----------------------------------------`);
+			console.log(shareData.shareTexts.linkedin.es);
+			console.log(`\n💼 LINKEDIN (EN):\n----------------------------------------`);
+			console.log(shareData.shareTexts.linkedin.en);
+
+			console.log(`\n🐦 X / TWITTER (ES) [${shareData.shareTexts.x.es.length} chars]:\n----------------------------------------`);
+			console.log(shareData.shareTexts.x.es);
+			console.log(`\n🐦 X / TWITTER (EN) [${shareData.shareTexts.x.en.length} chars]:\n----------------------------------------`);
+			console.log(shareData.shareTexts.x.en);
+
+			console.log(`\n📝 DEV.TO / HASHNODE MARKDOWN:\n----------------------------------------`);
+			console.log(`ES: ${join(blogPostDir, 'share/devto.es.md')}`);
+			console.log(`EN: ${join(blogPostDir, 'share/devto.en.md')}`);
+
+			if (job.publishAudio && job.audio) {
+				const audiogramPath = join(config.paths.work, `audiogram-${job.postId}.mp4`);
+				console.log(`\n🎙 AUDIOGRAMA:\n----------------------------------------`);
+				console.log(audiogramPath);
+			}
+
+			return;
+		}
 		case 'resume':
 		case 'status':
 			if (!arg) throw new Error(`usage: twm ${command} <job>`);
@@ -137,7 +198,7 @@ async function main(): Promise<void> {
 			break;
 		default:
 			console.log(
-				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm covers "<title>"'
+				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm share <job> | twm covers "<title>"'
 			);
 			process.exit(command ? 1 : 0);
 	}

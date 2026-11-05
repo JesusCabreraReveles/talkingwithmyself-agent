@@ -1,7 +1,8 @@
 // Handlers for Telegram bot: commands, media ingestion, callbacks, and pipeline execution.
+import { existsSync } from 'node:fs';
 import { copyFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Bot, type Context } from 'grammy';
+import { Bot, InputFile, type Context } from 'grammy';
 import type { Config } from '../config.ts';
 import { toWav } from '../core/audio.ts';
 import { adapt, applyFeedback, cleanTranscript, review } from '../core/draft.ts';
@@ -10,6 +11,7 @@ import { generateCover } from '../core/images.ts';
 import {
 	findJob,
 	jobDir,
+	listJobs,
 	loadJob,
 	OMIT,
 	saveJob,
@@ -18,9 +20,17 @@ import {
 	type UnclearPassage
 } from '../core/job.ts';
 import { imageRole, initJob, loadSite, runJob } from '../core/pipeline.ts';
-import { confirmPublishPost, publishPost, unpublishPost } from '../core/publish.ts';
+import { confirmPublishPost, getJobCanonicalUrls, loadSiteConfig, publishPost, unpublishPost } from '../core/publish.ts';
 import { writePost } from '../core/render.ts';
 import type { Lang } from '../core/schema/post.ts';
+import {
+	generateAudiogram,
+	generateDevToMarkdown,
+	generateShareTexts,
+	readShareFiles,
+	writeShareFiles,
+	type ShareTexts
+} from '../core/share.ts';
 import { transcribe } from '../core/transcribe.ts';
 import { downloadTelegramFile } from './media.ts';
 import { clearSession, loadSession, saveSession, type BotSession } from './session.ts';
@@ -28,11 +38,64 @@ import {
 	collectingKeyboard,
 	coverChoiceKeyboard,
 	coverReviewKeyboard,
+	escapeHtml,
 	formatPreviewMessage,
 	passageKeyboard,
 	previewKeyboard,
+	shareLinkedInKeyboard,
+	shareXKeyboard,
 	termsKeyboard
 } from './ui.ts';
+
+async function sendShareOutputs(
+	ctx: Context,
+	config: Config,
+	job: Job,
+	shareTexts: ShareTexts,
+	urls: { en: string; es: string },
+	audiogramPath?: string | null
+): Promise<void> {
+	// 1. LinkedIn message
+	await ctx.reply(
+		`💼 <b>LinkedIn (Español)</b>:\n\n` +
+			`<pre>${escapeHtml(shareTexts.linkedin.es)}</pre>\n\n` +
+			`💼 <b>LinkedIn (English)</b>:\n\n` +
+			`<pre>${escapeHtml(shareTexts.linkedin.en)}</pre>`,
+		{
+			parse_mode: 'HTML',
+			reply_markup: shareLinkedInKeyboard(urls.es, urls.en)
+		}
+	);
+
+	// 2. X / Twitter message
+	await ctx.reply(
+		`🐦 <b>X / Twitter (Español)</b> [${shareTexts.x.es.length} car.]:\n\n` +
+			`<pre>${escapeHtml(shareTexts.x.es)}</pre>\n\n` +
+			`🐦 <b>X / Twitter (English)</b> [${shareTexts.x.en.length} char.]:\n\n` +
+			`<pre>${escapeHtml(shareTexts.x.en)}</pre>`,
+		{
+			parse_mode: 'HTML',
+			reply_markup: shareXKeyboard(shareTexts.x.es, shareTexts.x.en)
+		}
+	);
+
+	// 3. Dev.to / Hashnode note
+	await ctx.reply(
+		`📝 <b>Dev.to / Hashnode Markdown</b>:\n` +
+			`Artículos con frontmatter canónico generados en:\n` +
+			`• <code>src/content/posts/${job.postId}/share/devto.es.md</code>\n` +
+			`• <code>src/content/posts/${job.postId}/share/devto.en.md</code>`,
+		{ parse_mode: 'HTML' }
+	);
+
+	// 4. Audiogram video if available
+	if (audiogramPath && existsSync(audiogramPath)) {
+		await ctx.replyWithVideo(new InputFile(audiogramPath), {
+			caption: '🎙 <b>Audiograma 1080x1080 (≤ 140s)</b> listo para compartir en redes.',
+			parse_mode: 'HTML'
+		});
+	}
+}
 
 export function setupBot(bot: Bot, config: Config): void {
 	const allowedChatId = Number(process.env.TELEGRAM_ALLOWED_CHAT_ID ?? 0);
@@ -69,6 +132,7 @@ export function setupBot(bot: Bot, config: Config): void {
 				`• /estado — Consulta el avance del post actual\n` +
 				`• /cancelar — Descarta el post en curso\n` +
 				`• /reintentar — Reintenta si Claude se pausó\n` +
+				`• /share — Genera y muestra textos de difusión para LinkedIn y X\n` +
 				`• /unpublish <code>&lt;id&gt;</code> — Despublica un post\n\n` +
 				`Escribe /nuevo para empezar.`,
 			{ parse_mode: 'HTML' }
@@ -226,6 +290,76 @@ export function setupBot(bot: Bot, config: Config): void {
 			});
 		} catch (e) {
 			await ctx.reply(`✗ Error al despublicar: ${(e as Error).message}`);
+		}
+	});
+
+	// /share
+	bot.command(['share', 'difusion'], async (ctx) => {
+		const session = await loadSession(config);
+		let job: Job | null = null;
+		if (session.activeJobKey) {
+			job = await loadJob(config, session.activeJobKey).catch(() => null);
+		}
+		if (!job || !job.draft) {
+			const all = await listJobs(config);
+			for (const candidate of all.reverse()) {
+				if (candidate.draft && candidate.postId) {
+					job = candidate;
+					break;
+				}
+			}
+		}
+		if (!job || !job.postId || !job.draft) {
+			await ctx.reply('No se encontró ningún post para generar textos de difusión. Usa /nuevo para crear uno.');
+			return;
+		}
+
+		const statusMsg = await ctx.reply(`📢 <b>Cargando textos de difusión para <i>${job.postId}</i>…</b>`, {
+			parse_mode: 'HTML'
+		});
+
+		try {
+			const site = await loadSiteConfig(config.blog.path);
+			const urls = getJobCanonicalUrls(site, job);
+			const postDir = join(jobDir(config, job.key), 'post', job.postId);
+			const blogPostDir = join(config.blog.path, 'src/content/posts', job.postId);
+
+			let shareData = (await readShareFiles(blogPostDir)) ?? (await readShareFiles(postDir));
+
+			if (!shareData) {
+				await ctx.api
+					.editMessageText(statusMsg.chat.id, statusMsg.message_id, '· Generando copies con Claude para LinkedIn y X…')
+					.catch(() => {});
+				const shareTexts = await generateShareTexts(config, job, urls);
+				const originalLang = job.audio?.lang ?? 'es';
+				const esPost = originalLang === 'es' ? job.draft.original : job.draft.adapted;
+				const enPost = originalLang === 'en' ? job.draft.original : job.draft.adapted;
+				const devTo = {
+					es: generateDevToMarkdown(esPost, 'es', urls.es, config.blog.repo, job.postId),
+					en: generateDevToMarkdown(enPost, 'en', urls.en, config.blog.repo, job.postId)
+				};
+				await writeShareFiles(postDir, shareTexts, devTo);
+				await writeShareFiles(blogPostDir, shareTexts, devTo).catch(() => {});
+				shareData = { shareTexts, devTo };
+			}
+
+			let audiogramPath: string | null = null;
+			if (job.publishAudio && job.audio) {
+				const expected = join(config.paths.work, `audiogram-${job.postId}.mp4`);
+				if (existsSync(expected)) {
+					audiogramPath = expected;
+				} else {
+					await ctx.api
+						.editMessageText(statusMsg.chat.id, statusMsg.message_id, '· Renderizando audiograma MP4 con ffmpeg…')
+						.catch(() => {});
+					audiogramPath = await generateAudiogram(config, job, expected).catch(() => null);
+				}
+			}
+
+			await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id).catch(() => {});
+			await sendShareOutputs(ctx, config, job, shareData.shareTexts, urls, audiogramPath);
+		} catch (e) {
+			await ctx.reply(`✗ Error al preparar difusión: ${(e as Error).message}`);
 		}
 	});
 
@@ -686,6 +820,8 @@ export function setupBot(bot: Bot, config: Config): void {
 						`🇬🇧 <b>EN</b>: <a href="${res.urls.en}">${res.urls.en}</a>`,
 					{ parse_mode: 'HTML' }
 				);
+
+				await sendShareOutputs(ctx, config, job, res.shareTexts, res.urls, res.audiogramPath);
 			} catch (e) {
 				await ctx.reply(`✗ Error al publicar: ${(e as Error).message}`);
 			}

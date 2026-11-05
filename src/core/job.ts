@@ -105,3 +105,23 @@ export async function findJob(config: Config, identifier: string): Promise<Job> 
 
 	throw new Error(`job no encontrado: "${identifier}"`);
 }
+
+/**
+ * Lists all jobs found in data/ ordered chronologically by key.
+ */
+export async function listJobs(config: Config): Promise<Job[]> {
+	try {
+		const entries = await readdir(config.paths.data, { withFileTypes: true });
+		const jobs: Job[] = [];
+		for (const e of entries) {
+			if (!e.isDirectory() || e.name === 'covers') continue;
+			try {
+				const j = await loadJob(config, e.name);
+				jobs.push(j);
+			} catch {}
+		}
+		return jobs.sort((a, b) => a.key.localeCompare(b.key));
+	} catch {
+		return [];
+	}
+}

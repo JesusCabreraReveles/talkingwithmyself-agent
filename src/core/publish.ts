@@ -20,10 +20,38 @@ import { renderMarkdown } from './render.ts';
 import { PostFrontmatter, SCHEMA_VERSION, type Lang } from './schema/post.ts';
 import { SiteConfig } from './schema/site.ts';
 import { splitFrontmatter, validatePostFolder } from './schema/validate.ts';
+import {
+	generateAudiogram,
+	generateDevToMarkdown,
+	generateShareTexts,
+	writeShareFiles,
+	type ShareTexts
+} from './share.ts';
 
 export type PublishHooks = {
 	log: (msg: string) => void;
 };
+
+export type ConfirmPublishResult = {
+	urls: { en: string; es: string };
+	shareTexts: ShareTexts;
+	audiogramPath?: string | null;
+};
+
+export async function loadSiteConfig(blogPath: string): Promise<SiteConfig> {
+	const siteRaw = await readFile(join(blogPath, 'src/content/site.yaml'), 'utf8');
+	return SiteConfig.parse(parseDocument(siteRaw).toJS());
+}
+
+export function getJobCanonicalUrls(site: SiteConfig, job: Job): { en: string; es: string } {
+	const originalLang = job.audio?.lang ?? 'es';
+	const enSlug = originalLang === 'en' ? job.draft?.original.slug : job.draft?.adapted.slug;
+	const esSlug = originalLang === 'es' ? job.draft?.original.slug : job.draft?.adapted.slug;
+	return {
+		en: `${site.baseUrl}/en/${enSlug}`,
+		es: `${site.baseUrl}/es/${esSlug}`
+	};
+}
 
 function getGithubToken(): string {
 	const token = process.env.GITHUB_TOKEN?.trim();
@@ -265,7 +293,7 @@ export async function confirmPublishPost(
 	job: Job,
 	hooks: PublishHooks,
 	options: { timeoutMs?: number } = {}
-): Promise<{ urls: { en: string; es: string } }> {
+): Promise<ConfirmPublishResult> {
 	const token = getGithubToken();
 	const blogPath = config.blog.path;
 	const postId = job.postId!;
@@ -297,6 +325,29 @@ export async function confirmPublishPost(
 
 		const jobFile = join(jobDir(config, job.key), 'post', postId, `${lang}.md`);
 		await writeFile(jobFile, updated).catch(() => {});
+	}
+
+	const urls = getJobCanonicalUrls(site, job);
+
+	// Generate share outputs for social networks and dev.to
+	hooks.log('generando textos de difusión para LinkedIn y X…');
+	const shareTexts = await generateShareTexts(config, job, urls);
+
+	const esPost = originalLang === 'es' ? job.draft!.original : job.draft!.adapted;
+	const enPost = originalLang === 'en' ? job.draft!.original : job.draft!.adapted;
+	const devTo = {
+		es: generateDevToMarkdown(esPost, 'es', urls.es, config.blog.repo, postId),
+		en: generateDevToMarkdown(enPost, 'en', urls.en, config.blog.repo, postId)
+	};
+
+	await writeShareFiles(join(blogPath, 'src/content/posts', postId), shareTexts, devTo);
+	await writeShareFiles(join(jobDir(config, job.key), 'post', postId), shareTexts, devTo).catch(() => {});
+
+	// Render audiogram if audio was published
+	let audiogramPath: string | null = null;
+	if (job.publishAudio && job.audio) {
+		const outAudio = join(config.paths.work, `audiogram-${postId}.mp4`);
+		audiogramPath = await generateAudiogram(config, job, outAudio, hooks);
 	}
 
 	await exec('git', ['-C', blogPath, 'add', `src/content/posts/${postId}`]);
@@ -365,19 +416,16 @@ export async function confirmPublishPost(
 	};
 	await saveJob(config, job);
 
-	const enSlug = originalLang === 'en' ? job.draft?.original.slug : job.draft?.adapted.slug;
-	const esSlug = originalLang === 'es' ? job.draft?.original.slug : job.draft?.adapted.slug;
-
-	const urls = {
-		en: `${site.baseUrl}/en/${enSlug}`,
-		es: `${site.baseUrl}/es/${esSlug}`
-	};
+	// Poll until Vercel production deployment completes on master
+	hooks.log('esperando despliegue de producción en Vercel (~30s)…');
+	const masterSha = (await exec('git', ['-C', blogPath, 'rev-parse', 'HEAD'])).trim();
+	await pollChecks(token, config.blog.repo, masterSha, hooks.log, { timeoutMs: 90_000 }).catch(() => {});
 
 	hooks.log(`Publicación completada exitosamente! 🎉`);
 	hooks.log(`ES: ${urls.es}`);
 	hooks.log(`EN: ${urls.en}`);
 
-	return { urls };
+	return { urls, shareTexts, audiogramPath };
 }
 
 /**

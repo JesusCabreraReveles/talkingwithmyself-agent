@@ -93,3 +93,22 @@ export function formatPreviewMessage(job: Job): string {
 
 	return lines.join('\n');
 }
+
+export function escapeHtml(str: string): string {
+	return str
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
+}
+
+export function shareXKeyboard(tweetEs: string, tweetEn: string): InlineKeyboard {
+	return new InlineKeyboard()
+		.url('🐦 Tuitear en X (ES)', `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetEs)}`)
+		.url('🐦 Tuitear en X (EN)', `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetEn)}`);
+}
+
+export function shareLinkedInKeyboard(urlEs: string, urlEn: string): InlineKeyboard {
+	return new InlineKeyboard()
+		.url('💼 Publicar en LinkedIn (ES)', `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(urlEs)}`)
+		.url('💼 Publicar en LinkedIn (EN)', `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(urlEn)}`);
+}
