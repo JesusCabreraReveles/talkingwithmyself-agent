@@ -76,7 +76,7 @@ async function getGitAuthor(
 		process.env.GIT_AUTHOR_EMAIL ||
 		config.git.authorEmail ||
 		(await exec('git', ['-C', blogPath, 'config', 'user.email']).catch(() => '')) ||
-		'jesus.cabrera.code@proton.me';
+		'jcr1984@gmail.com';
 	return { name: name.trim(), email: email.trim() };
 }
 

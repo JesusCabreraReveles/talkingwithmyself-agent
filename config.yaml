@@ -14,6 +14,8 @@ blog:
   branch: master # base de los PR y destino del merge
 
 git:
+  authorName: 'Jesus Cabrera'
+  authorEmail: 'jcr1984@gmail.com'
   coAuthor: 'Claude <noreply@anthropic.com>'
 
 whisper:
