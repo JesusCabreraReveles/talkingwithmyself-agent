@@ -1,5 +1,5 @@
 // Handlers for Telegram bot: commands, media ingestion, callbacks, and pipeline execution.
-import { copyFile } from 'node:fs/promises';
+import { copyFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Bot, type Context } from 'grammy';
 import type { Config } from '../config.ts';
@@ -19,6 +19,7 @@ import { confirmPublishPost, publishPost, unpublishPost } from '../core/publish.
 import { downloadTelegramFile } from './media.ts';
 import { clearSession, loadSession, saveSession, type BotSession } from './session.ts';
 import {
+	collectingKeyboard,
 	coverChoiceKeyboard,
 	coverReviewKeyboard,
 	formatPreviewMessage,
@@ -114,9 +115,11 @@ export function setupBot(bot: Bot, config: Config): void {
 				const audios = job.input.audio ? '1 nota de voz' : 'sin audio';
 				const imgs = `${job.input.images.length} imagen(es)`;
 				const urls = `${job.input.urls.length} enlace(s)`;
+				const notes = job.input.notes ? 'con notas' : 'sin notas';
+				const kb = collectingKeyboard(job);
 				await ctx.reply(
-					`📥 <b>Recopilando contenido</b> (<code>${job.key}</code>):\n• ${audios}\n• ${imgs}\n• ${urls}\n\nEscribe /listo para procesar.`,
-					{ parse_mode: 'HTML' }
+					`📥 <b>Recopilando contenido</b> (<code>${job.key}</code>):\n• Audio: ${audios}\n• Imágenes: ${imgs}\n• Enlaces: ${urls}\n• Notas: ${notes}\n\nEscribe /listo para procesar, o usa los botones para quitar elementos:`,
+					{ parse_mode: 'HTML', reply_markup: kb }
 				);
 			} else if (job.status === 'questions_pending') {
 				await ctx.reply('⏳ Esperando respuestas a términos o pasajes dudosos.', {
@@ -135,6 +138,65 @@ export function setupBot(bot: Bot, config: Config): void {
 		} catch (e) {
 			await ctx.reply(`Error leyendo estado: ${(e as Error).message}`);
 		}
+	});
+
+	// /deshacer
+	bot.command('deshacer', async (ctx) => {
+		const session = await loadSession(config);
+		if (!session.activeJobKey) {
+			await ctx.reply('No hay ningún post activo.');
+			return;
+		}
+		const job = await loadJob(config, session.activeJobKey);
+		if (job.status !== 'collecting') {
+			await ctx.reply('El post ya no está en fase de recopilación.');
+			return;
+		}
+
+		if (job.input.images.length > 0) {
+			const popped = job.input.images.pop()!;
+			await rm(join(jobDir(config, job.key), popped.file), { force: true }).catch(() => {});
+			await saveJob(config, job);
+			await ctx.reply(`🗑 Se eliminó la última imagen (quedan ${job.input.images.length}).`);
+			return;
+		}
+		if (job.input.urls.length > 0) {
+			const popped = job.input.urls.pop()!;
+			await saveJob(config, job);
+			await ctx.reply(`🗑 Se eliminó la última URL: ${popped}`);
+			return;
+		}
+		if (job.input.notes) {
+			job.input.notes = '';
+			await saveJob(config, job);
+			await ctx.reply('🗑 Se borraron las notas de texto.');
+			return;
+		}
+		if (job.input.audio) {
+			await rm(join(jobDir(config, job.key), job.input.audio), { force: true }).catch(() => {});
+			delete job.input.audio;
+			await saveJob(config, job);
+			await ctx.reply('🗑 Se eliminó la nota de voz.');
+			return;
+		}
+		await ctx.reply('No hay nada que deshacer en este post.');
+	});
+
+	// /quitar
+	bot.command('quitar', async (ctx) => {
+		const session = await loadSession(config);
+		if (!session.activeJobKey) {
+			await ctx.reply('No hay ningún post activo.');
+			return;
+		}
+		const job = await loadJob(config, session.activeJobKey);
+		if (job.status !== 'collecting') {
+			await ctx.reply('El post ya no está en fase de recopilación.');
+			return;
+		}
+		await ctx.reply('Selecciona qué deseas eliminar de este post:', {
+			reply_markup: collectingKeyboard(job)
+		});
 	});
 
 	// /unpublish
@@ -459,6 +521,38 @@ export function setupBot(bot: Bot, config: Config): void {
 			session.pendingAction = { type: 'clarify_passage', passageIndex: idx };
 			await saveSession(config, session);
 			await ctx.reply('✏️ Escribe en el chat qué quisiste decir en ese fragmento:');
+			return;
+		}
+
+		// Removal actions
+		if (data === 'remove:audio') {
+			if (job.input.audio) {
+				await rm(join(jobDir(config, job.key), job.input.audio), { force: true }).catch(() => {});
+				delete job.input.audio;
+				await saveJob(config, job);
+				await ctx.reply('🗑 Nota de voz eliminada.');
+			}
+			return;
+		}
+		if (data === 'remove:last_image') {
+			if (job.input.images.length > 0) {
+				const popped = job.input.images.pop()!;
+				await rm(join(jobDir(config, job.key), popped.file), { force: true }).catch(() => {});
+				await saveJob(config, job);
+				await ctx.reply(`🗑 Última imagen eliminada (quedan ${job.input.images.length}).`);
+			}
+			return;
+		}
+		if (data === 'remove:urls') {
+			job.input.urls = [];
+			await saveJob(config, job);
+			await ctx.reply('🗑 Enlaces eliminados.');
+			return;
+		}
+		if (data === 'remove:notes') {
+			job.input.notes = '';
+			await saveJob(config, job);
+			await ctx.reply('🗑 Notas eliminadas.');
 			return;
 		}
 

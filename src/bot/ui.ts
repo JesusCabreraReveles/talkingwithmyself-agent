@@ -36,6 +36,15 @@ export function coverReviewKeyboard(): InlineKeyboard {
 		.text('📎 La mando yo', 'cover:user');
 }
 
+export function collectingKeyboard(job: Job): InlineKeyboard {
+	const kb = new InlineKeyboard();
+	if (job.input.audio) kb.text('🗑 Quitar audio', 'remove:audio');
+	if (job.input.images.length > 0) kb.text('🗑 Quitar última foto', 'remove:last_image');
+	if (job.input.urls.length > 0) kb.text('🗑 Limpiar URLs', 'remove:urls');
+	if (job.input.notes) kb.text('🗑 Limpiar notas', 'remove:notes');
+	return kb;
+}
+
 export function previewKeyboard(job: Job): InlineKeyboard {
 	const audioLabel = job.publishAudio ? '🎙 Publicar audio: SÍ ✅' : '🎙 Publicar audio: NO ❌';
 	return new InlineKeyboard()
