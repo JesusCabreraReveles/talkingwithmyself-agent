@@ -75,7 +75,17 @@ export function formatPreviewMessage(job: Job): string {
 	}
 
 	if (job.publish?.previewUrl) {
-		lines.push(`\n🔗 <b>Preview Vercel</b>:\n<a href="${job.publish.previewUrl}">${job.publish.previewUrl}</a>`);
+		const rawBase = job.publish.previewUrl.replace(/\/+$/, '');
+		const blogBase = rawBase.endsWith('/blog') ? rawBase : `${rawBase}/blog`;
+		const origSlug = orig?.slug;
+		const adaptSlug = adapt?.slug;
+		const esSlug = job.audio?.lang === 'es' ? origSlug : adaptSlug;
+		const enSlug = job.audio?.lang === 'en' ? origSlug : adaptSlug;
+
+		lines.push('\n🔗 <b>Enlaces de Preview</b>:');
+		if (esSlug) lines.push(`• 🇪🇸 <a href="${blogBase}/es/${esSlug}">Ver post en Español</a>`);
+		if (enSlug) lines.push(`• 🇬🇧 <a href="${blogBase}/en/${enSlug}">Ver post en Inglés</a>`);
+		lines.push(`• 🏠 <a href="${blogBase}">Portada del blog</a>`);
 	}
 	if (job.publish?.prUrl) {
 		lines.push(`🐙 <b>Pull Request</b>:\n<a href="${job.publish.prUrl}">PR #${job.publish.prNumber}</a>`);

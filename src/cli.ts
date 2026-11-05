@@ -75,7 +75,14 @@ function report(config: Config, job: Job): void {
 		console.log(`para crear preview en Vercel: twm publish ${job.key}`);
 	}
 	if (job.status === 'previewed') {
-		console.log(`\npreview Vercel: ${job.publish?.previewUrl}`);
+		const rawBase = (job.publish?.previewUrl ?? '').replace(/\/+$/, '');
+		const blogBase = rawBase.endsWith('/blog') ? rawBase : `${rawBase}/blog`;
+		const origSlug = job.draft?.original.slug;
+		const adaptSlug = job.draft?.adapted.slug;
+		const esSlug = job.audio?.lang === 'es' ? origSlug : adaptSlug;
+		const enSlug = job.audio?.lang === 'en' ? origSlug : adaptSlug;
+		console.log(`\npreview Vercel ES: ${blogBase}/es/${esSlug}`);
+		console.log(`preview Vercel EN: ${blogBase}/en/${enSlug}`);
 		console.log(`PR: ${job.publish?.prUrl}`);
 		console.log(`para confirmar y publicar en producción: twm publish ${job.key} --confirm`);
 	}
