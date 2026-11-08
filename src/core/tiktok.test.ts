@@ -6,14 +6,14 @@ const TZ = 'America/Mexico_City';
 
 const draft = {
 	topic: 'ia',
-	caption: 'Un equipo Scrum de agentes de IA, con nosotros como Product Owner.',
+	caption: 'Agentes de IA con roles de Scrum y tú como Product Owner. Post completo en cabrera.systems/blog',
 	hashtags: ['#IA', '#scrum', '#programacion'],
 	slides: [
 		{ screen: '¿Y si la IA fuera tu equipo?', say: 'Escribir especificaciones y revisar todo lo que hace la IA ya me está tomando demasiado tiempo.', photo: 'developer laptop night' },
 		{ screen: '1. Agentes con roles de Scrum', say: 'Mi idea es un equipo de agentes con roles definidos que conversan entre ellos.', photo: 'team meeting whiteboard' },
 		{ screen: '2. Ellos arman el backlog', say: 'Generan el backlog y estiman cuántos tokens cuesta cada tarea.', photo: 'sticky notes board' },
 		{ screen: '3. Tú eres el Product Owner', say: 'Nosotros dejamos de revisar línea por línea y decidimos qué se construye y por qué.', photo: 'manager planning office' },
-		{ screen: 'Léelo completo en el blog', say: 'Lo cuento completo en mi blog, cabrera punto systems. Sígueme para más.', photo: 'notebook writing plan' }
+		{ screen: 'Léelo completo en el blog', say: 'Así cambiaría mi forma de trabajar. Lo cuento completo en mi blog. Sígueme para más.', photo: 'notebook writing plan' }
 	]
 };
 
