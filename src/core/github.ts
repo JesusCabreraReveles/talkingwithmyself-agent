@@ -291,3 +291,43 @@ export async function deleteBranch(token: string, repo: string, branch: string):
 		method: 'DELETE'
 	});
 }
+
+export type GitHubFile = { sha: string; content: string };
+
+/** Reads a file through the contents API. null when it does not exist (404). */
+export async function getRepoFile(token: string, repo: string, path: string, ref: string): Promise<GitHubFile | null> {
+	try {
+		const data = await githubFetch<{ sha: string; content: string; encoding: string }>(
+			token,
+			`/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`
+		);
+		return { sha: data.sha, content: Buffer.from(data.content, 'base64').toString('utf8') };
+	} catch (e) {
+		if (/\(404\)/.test((e as Error).message)) return null;
+		throw e;
+	}
+}
+
+/** Creates a new file on `branch` (fails with 422 if it already exists). Returns the commit SHA. */
+export async function createRepoFile(
+	token: string,
+	repo: string,
+	params: { path: string; branch: string; content: string; message: string; author: { name: string; email: string } }
+): Promise<string> {
+	const res = await githubFetch<{ commit: { sha: string } }>(
+		token,
+		`/repos/${repo}/contents/${params.path.split('/').map(encodeURIComponent).join('/')}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				message: params.message,
+				content: Buffer.from(params.content, 'utf8').toString('base64'),
+				branch: params.branch,
+				author: params.author,
+				committer: params.author
+			})
+		}
+	);
+	return res.commit.sha;
+}

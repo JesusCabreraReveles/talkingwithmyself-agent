@@ -20,6 +20,7 @@ Corre 24/7 en una **Raspberry Pi 5** como servicio `systemd` administrado a trav
   - **LinkedIn (ES/EN)**: Hook contundente, 2-3 párrafos y hashtags profesionales.
   - **X / Twitter (ES/EN)**: Copies optimizados para cuentas estándar (≤ 280 caracteres con URL canónica).
   - **Dev.to / Hashnode**: Archivos Markdown listos para importar con `canonical_url` y assets apuntando a GitHub.
+  - **Guion de TikTok (Stage 6)**: al publicar, encola `guiones/AAAA-MM-DD-voz.json` en [`tiktok-publisher`](https://github.com/JesusCabreraReveles/tiktok-publisher). La Raspberry lo convierte en video (voz Kokoro, mismo estilo) a las 9:15 junto con los guiones planeados, sin reemplazar ninguno. Uno por día: si ese día ya tiene uno, pasa al siguiente libre. Si se publica después de las 9:00, sale al día siguiente.
   - **Audiograma en video MP4 (1080x1080)**: Generado con `ffmpeg` con onda de audio animada en naranja (`#f97316`) acotado a ≤ 140s para el feed de X.
 
 ---
@@ -44,6 +45,7 @@ flowchart TD
     M --> J
     L -->|✅ Publicar| N[Squash Merge a master + Vercel Deploy]
     N --> O[Textos de difusión + Video Audiograma MP4]
+    N --> P[Guion TikTok → tiktok-publisher/guiones/AAAA-MM-DD-voz.json]
 ```
 
 ---
@@ -63,6 +65,7 @@ El bot opera por *long polling* con whitelist estricta (`TELEGRAM_ALLOWED_CHAT_I
 | `/reintentar` | Reanuda el procesamiento si Claude se pausó o hubo un corte temporal. |
 | `/share` | Muestra los copies listos para copiar y pegar para LinkedIn, X y Dev.to. |
 | `/audiograma` | Renderiza y envía el video MP4 (≤ 140s) para adjuntar en X / Twitter. |
+| `/tiktok [id]` | Encola (o muestra) el guion de TikTok del último post publicado o del indicado. Se usa si falló al publicar o para posts anteriores. |
 | `/deshacer` | Elimina el último elemento enviado (última foto, URL o audio). |
 | `/quitar` | Muestra un teclado interactivo para seleccionar qué elemento eliminar. |
 | `/unpublish <id>` | Abre un PR para despublicar un post (`draft: true`). |
@@ -89,6 +92,9 @@ twm publish <job-key> [--confirm]
 
 # Generar y mostrar textos de difusión para redes
 twm share <job-key-o-postId>
+
+# Encolar el guion de TikTok de un post publicado (--dry-run solo lo muestra)
+twm tiktok <job-key-o-postId> [--dry-run]
 
 # Despublicar un post en producción
 twm unpublish <postId> [--confirm]

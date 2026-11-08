@@ -20,7 +20,16 @@ import {
 	type UnclearPassage
 } from '../core/job.ts';
 import { imageRole, initJob, loadSite, runJob } from '../core/pipeline.ts';
-import { confirmPublishPost, getJobCanonicalUrls, loadSiteConfig, publishPost, unpublishPost } from '../core/publish.ts';
+import {
+	confirmPublishPost,
+	getGitAuthor,
+	getGithubToken,
+	getJobCanonicalUrls,
+	loadSiteConfig,
+	publishPost,
+	unpublishPost
+} from '../core/publish.ts';
+import { queueTikTok, weekdayEs, type QueueResult } from '../core/tiktok.ts';
 import { writePost } from '../core/render.ts';
 import type { Lang } from '../core/schema/post.ts';
 import {
@@ -59,6 +68,18 @@ async function findActiveOrLatestJob(config: Config, session: BotSession): Promi
 		}
 	}
 	return null;
+}
+
+function tiktokMessage(res: QueueResult): string {
+	const day = `${weekdayEs(res.date).toLowerCase()} ${res.date}`;
+	const head = res.alreadyQueued
+		? `🎵 <b>Este post ya tenía guion de TikTok</b>: <code>${res.path}</code> (${day}).`
+		: `🎵 <b>Guion de TikTok encolado</b>: <code>${res.path}</code>\nLa Raspberry lo convierte en video el <b>${day}</b> a las 9:15, junto con los guiones planeados (no reemplaza ninguno).`;
+	const slides = res.script.slides.map((s, i) => `${i + 1}. ${escapeHtml(s.screen)}`).join('\n');
+	return (
+		`${head}\n\n<b>${escapeHtml(res.script.tag)}</b>\n${slides}\n\n` +
+		`<i>${escapeHtml(res.script.caption)}</i>\n${escapeHtml(res.script.hashtags.join(' '))}`
+	);
 }
 
 async function sendAudiogramForJob(ctx: Context, config: Config, job: Job): Promise<void> {
@@ -193,6 +214,7 @@ export function setupBot(bot: Bot, config: Config): void {
 				`• /reintentar — Reintenta si Claude se pausó\n` +
 				`• /share — Genera y muestra textos de difusión para LinkedIn y X\n` +
 				`• /audiograma — Descarga el video MP4 (≤ 140s) para X / Twitter\n` +
+				`• /tiktok [<code>&lt;id&gt;</code>] — Encola el guion de TikTok del último post publicado (o del indicado)\n` +
 				`• /unpublish <code>&lt;id&gt;</code> — Despublica un post\n\n` +
 				`Escribe /nuevo para empezar.`,
 			{ parse_mode: 'HTML' }
@@ -395,6 +417,42 @@ export function setupBot(bot: Bot, config: Config): void {
 			await sendShareOutputs(ctx, config, job, shareData.shareTexts, urls);
 		} catch (e) {
 			await ctx.reply(`✗ Error al preparar difusión: ${(e as Error).message}`);
+		}
+	});
+
+	// /tiktok [id]: queue (or show) the TikTok script of a published post.
+	bot.command('tiktok', async (ctx) => {
+		const id = (ctx.match ?? '').toString().trim();
+		let job: Job | null = null;
+		if (id) {
+			job = await findJob(config, id).catch(() => null);
+		} else {
+			const all = await listJobs(config);
+			job = all.reverse().find((j) => j.status === 'published' && j.postId && j.draft) ?? null;
+		}
+		if (!job || !job.postId || !job.draft) {
+			await ctx.reply('No encontré un post publicado para hacer el guion de TikTok.');
+			return;
+		}
+		if (job.status !== 'published') {
+			await ctx.reply('⚠️ Ese post todavía no está publicado; el guion se encola solo al publicarlo.');
+			return;
+		}
+		const statusMsg = await ctx.reply(`🎵 <b>Preparando guion de TikTok para <i>${job.postId}</i>…</b>`, {
+			parse_mode: 'HTML'
+		});
+		try {
+			const res = await queueTikTok(config, job, {
+				token: getGithubToken(),
+				author: await getGitAuthor(config, config.blog.path),
+				log: (msg) => {
+					ctx.api.editMessageText(statusMsg.chat.id, statusMsg.message_id, `· ${msg}`).catch(() => {});
+				}
+			});
+			await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id).catch(() => {});
+			await ctx.reply(tiktokMessage(res), { parse_mode: 'HTML' });
+		} catch (e) {
+			await ctx.reply(`✗ No se encoló el guion de TikTok: ${(e as Error).message}`);
 		}
 	});
 
@@ -873,6 +931,13 @@ export function setupBot(bot: Bot, config: Config): void {
 				);
 
 				await sendShareOutputs(ctx, config, job, res.shareTexts, res.urls, res.audiogramPath);
+				if (res.tiktok) {
+					await ctx.reply(tiktokMessage(res.tiktok), { parse_mode: 'HTML' });
+				} else if (res.tiktokError) {
+					await ctx.reply(`⚠️ No se encoló el guion de TikTok: ${escapeHtml(res.tiktokError)}\nReintenta con /tiktok.`, {
+						parse_mode: 'HTML'
+					});
+				}
 			} catch (e) {
 				await ctx.reply(`✗ Error al publicar: ${(e as Error).message}`);
 			}

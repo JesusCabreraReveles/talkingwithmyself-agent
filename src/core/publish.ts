@@ -27,6 +27,7 @@ import {
 	writeShareFiles,
 	type ShareTexts
 } from './share.ts';
+import { queueTikTok, type QueueResult } from './tiktok.ts';
 
 export type PublishHooks = {
 	log: (msg: string) => void;
@@ -36,6 +37,9 @@ export type ConfirmPublishResult = {
 	urls: { en: string; es: string };
 	shareTexts: ShareTexts;
 	audiogramPath?: string | null;
+	/** Stage 6: the TikTok script queued for the Pi, or why it could not be. */
+	tiktok?: QueueResult;
+	tiktokError?: string;
 };
 
 export async function loadSiteConfig(blogPath: string): Promise<SiteConfig> {
@@ -53,7 +57,7 @@ export function getJobCanonicalUrls(site: SiteConfig, job: Job): { en: string; e
 	};
 }
 
-function getGithubToken(): string {
+export function getGithubToken(): string {
 	const token = process.env.GITHUB_TOKEN?.trim();
 	if (!token) throw new Error('GITHUB_TOKEN no configurado en entorno ni en .env');
 	return token;
@@ -63,7 +67,7 @@ function getAuthHeader(token: string): string {
 	return `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
 }
 
-async function getGitAuthor(
+export async function getGitAuthor(
 	config: Config,
 	blogPath: string
 ): Promise<{ name: string; email: string }> {
@@ -425,7 +429,19 @@ export async function confirmPublishPost(
 	hooks.log(`ES: ${urls.es}`);
 	hooks.log(`EN: ${urls.en}`);
 
-	return { urls, shareTexts, audiogramPath };
+	// Stage 6: TikTok script. The post is already live, so a failure here is only reported.
+	let tiktok: QueueResult | undefined;
+	let tiktokError: string | undefined;
+	if (config.tiktok.enabled) {
+		try {
+			tiktok = await queueTikTok(config, job, { token, author, log: hooks.log });
+		} catch (e) {
+			tiktokError = (e as Error).message;
+			hooks.log(`aviso: no se encoló el guion de TikTok (${tiktokError}); reintenta con /tiktok`);
+		}
+	}
+
+	return { urls, shareTexts, audiogramPath, tiktok, tiktokError };
 }
 
 /**

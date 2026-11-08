@@ -36,6 +36,14 @@ claude:
   model: sonnet
   retries: 2
 
+# Guion de TikTok que se encola en tiktok-publisher al publicar un post (uno por día:
+# guiones/AAAA-MM-DD-voz.json). La Pi lo convierte en video a las 9:15 junto con los demás.
+tiktok:
+  enabled: true
+  repo: JesusCabreraReveles/tiktok-publisher
+  branch: master
+  cutoffHour: 9 # después de esta hora (local) el guion se encola para el día siguiente
+
 cover:
   accent: '#f97316'
   background: ['#02050f', '#0b1426', '#111e38']

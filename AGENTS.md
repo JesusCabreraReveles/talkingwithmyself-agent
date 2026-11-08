@@ -53,3 +53,9 @@ Este archivo contiene las directrices, convenciones, arquitectura y decisiones p
   - **X / Twitter**: Longitud total ≤ 280 caracteres (la URL canónica cuenta como 23 caracteres).
   - **Audiograma para X**: Video MP4 1080x1080 con onda naranja (`#f97316`) acotado a ≤ 140 segundos (límite de cuentas gratuitas de X).
 - **Publicación de audio**: Opt-in por post (`publishAudio: true` para audio.mp3 en el blog web), pero los copies y audiogramas para redes sociales siempre se generan si hubo nota de voz.
+- **Guion de TikTok (Stage 6)**: después del merge se escribe `guiones/AAAA-MM-DD-voz.json` en `JesusCabreraReveles/tiktok-publisher` (rama `master`) con el mismo formato que las tareas programadas (`lang`, `tag`, `brand`, `caption`, `hashtags`, `slides` con `screen`/`say`/`photo`), en español y para la voz Kokoro. Reglas de Jesus (7 nov 2026):
+  - Se **encola**: nunca reemplaza ni toca los guiones planeados (diario, `-book`, `-promo`). Un guion `-voz` por día; si el día está ocupado, va al siguiente libre.
+  - Si se publica antes de `tiktok.cutoffHour` (9:00, la Pi corre 9:15/10:15/11:15) sale ese día; si no, al día siguiente.
+  - Voz Kokoro y el estilo/diseño de siempre (tema del día de la semana, fotos de Pixabay, panda al 50%).
+  - Se verifica leyendo el archivo de vuelta. Si falla, el post ya publicado no se toca: se avisa y se reintenta con `/tiktok` o `twm tiktok <id>`.
+  - El `GITHUB_TOKEN` necesita permiso de escritura (Contents) en `tiktok-publisher`.
