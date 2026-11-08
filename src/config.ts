@@ -51,6 +51,17 @@ const Config = z
 			.object({ bin: z.string(), model: z.string(), retries: z.coerce.number().int().min(0) })
 			.strict(),
 		cover: z.object({ accent: z.string(), background: z.array(z.string()).min(1) }).strict(),
+		// Repo that the Raspberry Pi reads every morning to render TikTok videos (publish_daily.py).
+		tiktok: z
+			.object({
+				enabled: z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')]).default(true),
+				repo: z.string().min(1).default('JesusCabreraReveles/tiktok-publisher'),
+				branch: z.string().min(1).default('master'),
+				/** Local hour of the Pi's first run (9:15). Scripts queued later go to the next day. */
+				cutoffHour: z.coerce.number().int().min(0).max(23).default(9)
+			})
+			.strict()
+			.default({ enabled: true, repo: 'JesusCabreraReveles/tiktok-publisher', branch: 'master', cutoffHour: 9 }),
 		glossary: z.array(GlossaryEntry).default([])
 	})
 	.strict();

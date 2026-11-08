@@ -66,6 +66,17 @@ export type Job = {
 	draft?: { original: Original; adapted: Localized };
 	review?: { removed: string[] };
 	publish?: PublishInfo;
+	/** TikTok script queued in tiktok-publisher (guiones/AAAA-MM-DD-voz.json), once. */
+	tiktok?: TikTokInfo;
+};
+
+export type TikTokInfo = {
+	/** Path in the tiktok-publisher repo, e.g. guiones/2026-11-08-voz.json. */
+	path: string;
+	/** Day the Raspberry Pi turns it into a video (AAAA-MM-DD). */
+	date: string;
+	commitSha: string;
+	queuedAt: string;
 };
 
 export function jobDir(config: Config, key: string): string {

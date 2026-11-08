@@ -8,6 +8,8 @@
 // twm publish <job-or-post> [--confirm]  create branch, PR, wait for Vercel preview; --confirm merges to master
 // twm unpublish <postId> [--confirm]     open PR with draft: true; --confirm merges to master
 // twm share <job-or-post>            generate or display LinkedIn, X, and Dev.to share copies
+// twm tiktok <job-or-post> [--dry-run]  queue the TikTok script (guiones/AAAA-MM-DD-voz.json) of a
+//                                    published post; --dry-run only prints it
 // twm cleanup [--days=180] [--dry-run]  clean old published jobs (> 6 months) and temp files
 // twm covers "<title>"            render every generated-cover variant to data/covers/
 import { createInterface } from 'node:readline/promises';
@@ -18,7 +20,16 @@ import { runCleanup } from './core/cleanup.ts';
 import { COVER_VARIANTS, generateCover } from './core/images.ts';
 import { findJob, jobDir, loadJob, OMIT, type Job, type UncertainTerm, type UnclearPassage } from './core/job.ts';
 import { createJob, runJob, type Hooks } from './core/pipeline.ts';
-import { confirmPublishPost, getJobCanonicalUrls, loadSiteConfig, publishPost, unpublishPost } from './core/publish.ts';
+import {
+	confirmPublishPost,
+	getGitAuthor,
+	getGithubToken,
+	getJobCanonicalUrls,
+	loadSiteConfig,
+	publishPost,
+	unpublishPost
+} from './core/publish.ts';
+import { buildScript, firstQueueDate, generateTikTokDraft, queueTikTok, renderScript } from './core/tiktok.ts';
 import {
 	generateAudiogram,
 	generateDevToMarkdown,
@@ -192,6 +203,25 @@ async function main(): Promise<void> {
 
 			return;
 		}
+		case 'tiktok': {
+			if (!arg) throw new Error('usage: twm tiktok <job-or-postId> [--dry-run]');
+			const job = await findJob(config, arg);
+			if (job.status !== 'published') throw new Error(`el post ${job.postId ?? job.key} todavía no está publicado`);
+			if (flags.includes('--dry-run')) {
+				const draft = await generateTikTokDraft(config, job);
+				const date = firstQueueDate(new Date(), config.timezone, config.tiktok.cutoffHour);
+				console.log(renderScript(buildScript(draft, date)));
+				return;
+			}
+			const res = await queueTikTok(config, job, {
+				token: getGithubToken(),
+				author: await getGitAuthor(config, config.blog.path),
+				log: (msg) => console.log(`· ${msg}`)
+			});
+			console.log(`\n${res.alreadyQueued ? 'ya estaba encolado' : '✓ encolado'}: ${config.tiktok.repo}/${res.path} (${res.date})\n`);
+			console.log(renderScript(res.script));
+			return;
+		}
 		case 'cleanup': {
 			const daysFlag = Number(values('days')[0] || 180);
 			const dryRun = flags.includes('--dry-run');
@@ -214,7 +244,7 @@ async function main(): Promise<void> {
 			break;
 		default:
 			console.log(
-				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm share <job> | twm cleanup [--days=180] | twm covers "<title>"'
+				'usage: twm draft <input-dir> [--yes] [--audio] | twm resume <job> [--yes] | twm status <job> | twm publish <job> [--confirm] | twm unpublish <id> [--confirm] | twm share <job> | twm tiktok <job> [--dry-run] | twm cleanup [--days=180] | twm covers "<title>"'
 			);
 			process.exit(command ? 1 : 0);
 	}
