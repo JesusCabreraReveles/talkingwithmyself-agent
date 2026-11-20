@@ -6,7 +6,7 @@ import { parse } from 'yaml';
 import { ClaudeUnavailable } from '../claude.ts';
 import { addToGlossary, type Config } from '../config.ts';
 import { durationSeconds, toMp3, toWav } from './audio.ts';
-import { adapt, cleanTranscript, describeImage, draftOriginal, review } from './draft.ts';
+import { adapt, approvedResearch, cleanTranscript, describeImage, draftOriginal, review } from './draft.ts';
 import { isoDate, postId, stamp } from './ids.ts';
 import { generateCover, toBodyImage, toCover } from './images.ts';
 import {
@@ -267,7 +267,12 @@ export async function runJob(config: Config, job: Job, hooks: Hooks): Promise<Jo
 			{
 				date: isoDate(new Date(), config.timezone), // provisional; ✅ sets the merge date
 				tags,
-				sourceUrls: (job.sources ?? []).filter((s) => !s.error).map((s) => s.url),
+				sourceUrls: [
+					...new Set([
+						...(job.sources ?? []).filter((s) => !s.error).map((s) => s.url),
+						...approvedResearch(job).flatMap((r) => r.sources.map((s) => s.url))
+					])
+				],
 				audio: job.publishAudio ? job.audio : undefined
 			},
 			job.publishAudio ? job.transcript!.clean : undefined

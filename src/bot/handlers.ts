@@ -29,6 +29,7 @@ import {
 	publishPost,
 	unpublishPost
 } from '../core/publish.ts';
+import { research } from '../core/research.ts';
 import { queueTikTok, weekdayEs, type QueueResult } from '../core/tiktok.ts';
 import { writePost } from '../core/render.ts';
 import type { Lang } from '../core/schema/post.ts';
@@ -49,8 +50,10 @@ import {
 	coverReviewKeyboard,
 	escapeHtml,
 	formatPreviewMessage,
+	formatResearch,
 	passageKeyboard,
 	previewKeyboard,
+	researchKeyboard,
 	shareLinkedInKeyboard,
 	shareXKeyboard,
 	termsKeyboard
@@ -202,12 +205,57 @@ export function setupBot(bot: Bot, config: Config): void {
 		await next();
 	});
 
+	/** Voice note → cleaned text (instructions or a research topic), never stored with the job. */
+	async function transcribeVoice(filePath: string): Promise<string> {
+		const tmpDir = join(config.paths.work, `voice-${Date.now()}`);
+		await mkdir(tmpDir, { recursive: true });
+		try {
+			const rawAudio = join(tmpDir, 'audio.oga');
+			await downloadTelegramFile(bot.token, filePath, rawAudio);
+			const wav = join(tmpDir, 'audio.wav');
+			await toWav(rawAudio, wav);
+			const { text: rawText } = await transcribe(config, wav, join(tmpDir, 'whisper'));
+			return (await cleanTranscript(config, rawText)).clean;
+		} finally {
+			await rm(tmpDir, { recursive: true, force: true });
+		}
+	}
+
+	async function runResearch(ctx: Context, job: Job, topic: string) {
+		if (job.draft) {
+			await ctx.reply('⚠️ El post ya tiene borrador: la investigación solo se puede agregar antes de redactar.');
+			return;
+		}
+		const statusMsg = await ctx.reply(`🔎 <b>Investigando</b>: ${escapeHtml(topic)}…\nSuele tardar 1 a 3 minutos.`, {
+			parse_mode: 'HTML'
+		});
+		try {
+			const r = await research(config, topic);
+			// Reload: other messages may have changed the job while Claude searched.
+			const fresh = await loadJob(config, job.key);
+			fresh.research = [...(fresh.research ?? []), r];
+			await saveJob(config, fresh);
+			await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id).catch(() => {});
+			await ctx.reply(formatResearch(r), {
+				parse_mode: 'HTML',
+				reply_markup: researchKeyboard(fresh.research.length - 1),
+				link_preview_options: { is_disabled: true }
+			});
+		} catch (e) {
+			console.error('[Research Error]', e);
+			await ctx.reply(`✗ No pude completar la investigación: ${escapeHtml((e as Error).message)}\nPrueba de nuevo con /investigar.`, {
+				parse_mode: 'HTML'
+			});
+		}
+	}
+
 	// /start
 	bot.command('start', async (ctx) => {
 		await ctx.reply(
 			`👋 <b>Talking With Myself</b>\n\n` +
 				`Comandos principales:\n` +
 				`• /nuevo — Abre un post nuevo para recopilar notas\n` +
+				`• /investigar <code>&lt;tema&gt;</code> — Investiga un tema en la web y te muestra un resumen para aprobar\n` +
 				`• /listo — Cierra la ingesta y arranca el pipeline\n` +
 				`• /estado — Consulta el avance del post actual\n` +
 				`• /cancelar — Descarta el post en curso\n` +
@@ -242,6 +290,7 @@ export function setupBot(bot: Bot, config: Config): void {
 		await ctx.reply(
 			`🎙 <b>Nuevo post abierto</b>: <code>${job.key}</code>\n\n` +
 				`Mándame tu nota de voz (audio), fotos con caption (ej. <code>#portada</code>, <code>#1</code>) y URLs o notas de texto.\n` +
+				`Si necesitas contexto, usa /investigar <code>&lt;tema&gt;</code>.\n` +
 				`Cuando termines, escribe /listo.`,
 			{ parse_mode: 'HTML' }
 		);
@@ -268,9 +317,11 @@ export function setupBot(bot: Bot, config: Config): void {
 				const imgs = `${job.input.images.length} imagen(es)`;
 				const urls = `${job.input.urls.length} enlace(s)`;
 				const notes = job.input.notes ? 'con notas' : 'sin notas';
+				const approved = (job.research ?? []).filter((r) => r.approved).length;
+				const inv = `${approved} aprobada(s) de ${(job.research ?? []).length}`;
 				const kb = collectingKeyboard(job);
 				await ctx.reply(
-					`📥 <b>Recopilando contenido</b> (<code>${job.key}</code>):\n• Audio: ${audios}\n• Imágenes: ${imgs}\n• Enlaces: ${urls}\n• Notas: ${notes}\n\nEscribe /listo para procesar, o usa los botones para quitar elementos:`,
+					`📥 <b>Recopilando contenido</b> (<code>${job.key}</code>):\n• Audio: ${audios}\n• Imágenes: ${imgs}\n• Enlaces: ${urls}\n• Notas: ${notes}\n• Investigaciones: ${inv}\n\nEscribe /listo para procesar, o usa los botones para quitar elementos:`,
 					{ parse_mode: 'HTML', reply_markup: kb }
 				);
 			} else if (job.status === 'questions_pending') {
@@ -604,6 +655,24 @@ export function setupBot(bot: Bot, config: Config): void {
 		}
 	}
 
+	// /investigar <tema>
+	bot.command('investigar', async (ctx) => {
+		const session = await loadSession(config);
+		if (!session.activeJobKey) {
+			await ctx.reply('No hay ningún post abierto. Usa /nuevo y luego /investigar <tema>.');
+			return;
+		}
+		const job = await loadJob(config, session.activeJobKey);
+		const topic = ctx.match.trim();
+		if (!topic) {
+			session.pendingAction = { type: 'research_topic' };
+			await saveSession(config, session);
+			await ctx.reply('🔎 ¿Qué tema investigo? Escríbelo o mándamelo en nota de voz.');
+			return;
+		}
+		await runResearch(ctx, job, topic);
+	});
+
 	// /listo
 	bot.command('listo', async (ctx) => {
 		const session = await loadSession(config);
@@ -650,17 +719,16 @@ export function setupBot(bot: Bot, config: Config): void {
 		if (session.pendingAction?.type === 'custom_change') {
 			delete session.pendingAction;
 			await saveSession(config, session);
-			const tmpDir = join(config.paths.work, `voice-edit-${Date.now()}`);
-			await mkdir(tmpDir, { recursive: true });
-			const rawAudio = join(tmpDir, 'audio.oga');
-			await downloadTelegramFile(bot.token, fileInfo.file_path, rawAudio);
-			const wav = join(tmpDir, 'audio.wav');
-			await toWav(rawAudio, wav);
-			const { text: rawText } = await transcribe(config, wav, join(tmpDir, 'whisper'));
-			const cleaned = await cleanTranscript(config, rawText);
-			await rm(tmpDir, { recursive: true, force: true });
-			await ctx.reply(`🎙 <b>Instrucciones de voz recibidas</b>:\n«${cleaned.clean}»`, { parse_mode: 'HTML' });
-			await applyChangesToJob(ctx, job, session, cleaned.clean);
+			const text = await transcribeVoice(fileInfo.file_path);
+			await ctx.reply(`🎙 <b>Instrucciones de voz recibidas</b>:\n«${text}»`, { parse_mode: 'HTML' });
+			await applyChangesToJob(ctx, job, session, text);
+			return;
+		}
+		if (session.pendingAction?.type === 'research_topic') {
+			delete session.pendingAction;
+			await saveSession(config, session);
+			const topic = await transcribeVoice(fileInfo.file_path);
+			await runResearch(ctx, job, topic);
 			return;
 		}
 
@@ -761,6 +829,10 @@ export function setupBot(bot: Bot, config: Config): void {
 				await applyChangesToJob(ctx, job, session, text);
 				return;
 			}
+			if (act.type === 'research_topic') {
+				await runResearch(ctx, job, text);
+				return;
+			}
 		}
 
 		// Detect URLs
@@ -845,6 +917,27 @@ export function setupBot(bot: Bot, config: Config): void {
 			session.pendingAction = { type: 'clarify_passage', passageIndex: idx };
 			await saveSession(config, session);
 			await ctx.reply('✏️ Escribe en el chat qué quisiste decir en ese fragmento:');
+			return;
+		}
+
+		// Research approval
+		if (data.startsWith('research:')) {
+			const [, action, n] = data.split(':');
+			const r = job.research?.[Number(n)];
+			if (!r) return;
+			if (job.draft) {
+				await ctx.reply('⚠️ El post ya tiene borrador; esta investigación ya no se puede cambiar.');
+				return;
+			}
+			r.approved = action === 'approve';
+			await saveJob(config, job);
+			await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+			await ctx.reply(
+				r.approved
+					? `✅ Investigación aprobada: <b>${escapeHtml(r.topic)}</b>. Se usará al redactar.`
+					: `🗑 Investigación descartada: <b>${escapeHtml(r.topic)}</b>.`,
+				{ parse_mode: 'HTML' }
+			);
 			return;
 		}
 

@@ -6,7 +6,8 @@ import type { Config } from '../config.ts';
 export type PendingAction =
 	| { type: 'correct_term'; termIndex: number }
 	| { type: 'clarify_passage'; passageIndex: number }
-	| { type: 'custom_change' };
+	| { type: 'custom_change' }
+	| { type: 'research_topic' };
 
 export type BotSession = {
 	activeJobKey: string | null;

@@ -1,5 +1,6 @@
-// Claude through the subscription: `claude -p` headless, with no tools, MCP, settings
-// or session, so a prompt (or a web page quoted in it) can only produce text.
+// Claude through the subscription: `claude -p` headless, with no MCP, settings or session.
+// No tools by default, so a prompt (or a web page quoted in it) can only produce text;
+// research opts into read-only WebSearch/WebFetch, which still can't touch the Pi.
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -48,7 +49,7 @@ async function imageMessage(input: string, images: string[]): Promise<string> {
  */
 export async function ask<T extends z.ZodType>(
 	config: Config,
-	opts: { system: string; input: string; schema: T; images?: string[] }
+	opts: { system: string; input: string; schema: T; images?: string[]; tools?: ('WebSearch' | 'WebFetch')[] }
 ): Promise<z.infer<T>> {
 	// claude's validator doesn't resolve the draft-2020-12 meta-schema URI.
 	const { $schema: _, ...schema } = z.toJSONSchema(opts.schema);
@@ -56,7 +57,8 @@ export async function ask<T extends z.ZodType>(
 	const args = [
 		'-p',
 		'--model', config.claude.model,
-		'--tools', '',
+		'--tools', (opts.tools ?? []).join(','),
+		...(opts.tools?.length ? ['--allowedTools', ...opts.tools] : []),
 		'--strict-mcp-config',
 		'--setting-sources', '',
 		'--disable-slash-commands',

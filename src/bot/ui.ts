@@ -1,6 +1,6 @@
 // Keyboards and message helpers for Telegram bot.
 import { InlineKeyboard } from 'grammy';
-import type { Job, UncertainTerm, UnclearPassage } from '../core/job.ts';
+import type { Job, Research, UncertainTerm, UnclearPassage } from '../core/job.ts';
 
 export function termsKeyboard(terms: UncertainTerm[]): InlineKeyboard {
 	const kb = new InlineKeyboard();
@@ -43,6 +43,25 @@ export function collectingKeyboard(job: Job): InlineKeyboard {
 	if (job.input.urls.length > 0) kb.text('🗑 Limpiar URLs', 'remove:urls');
 	if (job.input.notes) kb.text('🗑 Limpiar notas', 'remove:notes');
 	return kb;
+}
+
+export function researchKeyboard(index: number): InlineKeyboard {
+	return new InlineKeyboard()
+		.text('✅ Aprobar', `research:approve:${index}`)
+		.text('🗑 Descartar', `research:discard:${index}`);
+}
+
+/** Telegram caps messages at 4096 chars; the research summary stays well under it. */
+export function formatResearch(r: Research): string {
+	const sources = r.sources.map((s) => `• <a href="${escapeHtml(s.url)}">${escapeHtml(s.title)}</a>`).join('\n');
+	const build = (points: string[]) =>
+		`🔎 <b>Investigación</b>: ${escapeHtml(r.topic)}\n\n${escapeHtml(r.summary)}\n\n` +
+		points.map((p) => `• ${escapeHtml(p)}`).join('\n') +
+		`\n\n<b>Fuentes</b>\n${sources}\n\n¿La agrego al material del post? Solo lo aprobado se usa al redactar.`;
+	// Drop trailing points (never cut inside an HTML tag) until it fits; the job keeps them all.
+	let points = r.points;
+	while (points.length > 1 && build(points).length > 4000) points = points.slice(0, -1);
+	return build(points);
 }
 
 export function previewKeyboard(job: Job): InlineKeyboard {

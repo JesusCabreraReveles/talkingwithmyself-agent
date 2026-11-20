@@ -43,6 +43,10 @@ function glossaryBlock(config: Config): string {
 	return tag('glosario', '', JSON.stringify(config.glossary, null, 1));
 }
 
+export function approvedResearch(job: Job) {
+	return (job.research ?? []).filter((r) => r.approved);
+}
+
 function materialBlock(job: Job): string {
 	const parts = [tag('transcripcion', ` idioma="${job.audio!.lang}"`, job.transcript!.clean)];
 	if (job.input.notes) parts.push(tag('notas_de_jesus', '', job.input.notes));
@@ -50,6 +54,10 @@ function materialBlock(job: Job): string {
 	if (answered.length > 0) {
 		const lines = answered.map((u) => `- «${u.passage}» · pregunta: ${u.question} · Jesus: ${u.answer}`);
 		parts.push(tag('aclaraciones_de_jesus', '', lines.join('\n')));
+	}
+	for (const r of approvedResearch(job)) {
+		const body = [r.summary, ...r.points.map((p) => `- ${p}`), '', 'Fuentes:', ...r.sources.map((s) => `- ${s.title}: ${s.url}`)];
+		parts.push(tag('investigacion_aprobada_por_jesus', ` tema="${r.topic.replace(/"/g, "'")}"`, body.join('\n')));
 	}
 	for (const s of job.sources ?? []) {
 		if (!s.error) parts.push(tag('fuente', ` url="${s.url}" titulo="${s.title.replace(/"/g, "'")}"`, s.text));

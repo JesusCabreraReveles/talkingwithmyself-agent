@@ -62,12 +62,23 @@ export type Job = {
 	terms?: UncertainTerm[];
 	unclear?: UnclearPassage[];
 	sources?: { url: string; title: string; text: string; error?: string }[];
+	research?: Research[];
 	postId?: string;
 	draft?: { original: Original; adapted: Localized };
 	review?: { removed: string[] };
 	publish?: PublishInfo;
 	/** TikTok script queued in tiktok-publisher (guiones/AAAA-MM-DD-voz.json), once. */
 	tiktok?: TikTokInfo;
+};
+
+/** A short web research Jesus asked for with /investigar. Only approved ones reach the draft. */
+export type Research = {
+	topic: string;
+	summary: string;
+	points: string[];
+	sources: { url: string; title: string }[];
+	approved: boolean;
+	createdAt: string;
 };
 
 export type TikTokInfo = {
